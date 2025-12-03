@@ -1,0 +1,2367 @@
+--[[
+	Rayfield Interface Suite - 增强版
+	by Sirius Software
+	优化和美化版本
+]]
+
+if debugX then
+	warn('正在初始化 Rayfield - 增强版')
+end
+
+-- 服务获取函数
+local function getService(name)
+	local service = game:GetService(name)
+	return if cloneref then cloneref(service) else service
+end
+
+-- 带超时的网络加载
+local function loadWithTimeout(url: string, timeout: number?): ...any
+	assert(type(url) == "string", "期望字符串，得到 " .. type(url))
+	timeout = timeout or 5
+	local requestCompleted = false
+	local success, result = false, nil
+
+	local requestThread = task.spawn(function()
+		local fetchSuccess, fetchResult = pcall(game.HttpGet, game, url)
+		if not fetchSuccess or #fetchResult == 0 then
+			if #fetchResult == 0 then
+				fetchResult = "空响应"
+			end
+			success, result = false, fetchResult
+			requestCompleted = true
+			return
+		end
+		local content = fetchResult
+		local execSuccess, execResult = pcall(function()
+			return loadstring(content)()
+		end)
+		success, result = execSuccess, execResult
+		requestCompleted = true
+	end)
+
+	local timeoutThread = task.delay(timeout, function()
+		if not requestCompleted then
+			warn(`请求 {url} 在 {timeout} 秒后超时`)
+			task.cancel(requestThread)
+			result = "请求超时"
+			requestCompleted = true
+		end
+	end)
+
+	while not requestCompleted do
+		task.wait()
+	end
+	
+	if coroutine.status(timeoutThread) ~= "dead" then
+		task.cancel(timeoutThread)
+	end
+	
+	if not success then
+		warn(`处理 {url} 失败: {result}`)
+	end
+	
+	return if success then result else nil
+end
+
+-- 状态管理器
+local StateManager = {
+	_debounce = false,
+	_minimized = false,
+	_hidden = false,
+	_searchOpen = false,
+	_rayfieldDestroyed = false,
+	_settingsInitialized = false,
+	_globalLoaded = false,
+	
+	get = function(self, key)
+		return self["_" .. key]
+	end,
+	
+	set = function(self, key, value)
+		self["_" .. key] = value
+		return value
+	end,
+	
+	isDebouncing = function(self)
+		return self._debounce
+	end,
+	
+	setDebounce = function(self, value, duration)
+		self._debounce = value
+		if duration and value then
+			task.delay(duration, function()
+				self._debounce = false
+			end)
+		end
+	end
+}
+
+-- 连接管理器
+local ConnectionManager = {
+	_connections = {},
+	
+	add = function(self, connection)
+		table.insert(self._connections, connection)
+		return connection
+	end,
+	
+	disconnectAll = function(self)
+		for _, conn in ipairs(self._connections) do
+			if conn and typeof(conn) == "RBXScriptConnection" then
+				pcall(function() conn:Disconnect() end)
+			end
+		end
+		self._connections = {}
+	end,
+	
+	disconnect = function(self, connection)
+		for i, conn in ipairs(self._connections) do
+			if conn == connection then
+				table.remove(self._connections, i)
+				pcall(function() conn:Disconnect() end)
+				break
+			end
+		end
+	end
+}
+
+-- 动画管理器
+local AnimationManager = {
+	_tweens = {},
+	
+	create = function(self, instance, tweenInfo, properties, onComplete)
+		local tween = TweenService:Create(instance, tweenInfo, properties)
+		table.insert(self._tweens, tween)
+		
+		if onComplete then
+			tween.Completed:Connect(function()
+				onComplete()
+			end)
+		end
+		
+		tween:Play()
+		return tween
+	end,
+	
+	cancelAll = function(self)
+		for _, tween in ipairs(self._tweens) do
+			pcall(function() tween:Cancel() end)
+		end
+		self._tweens = {}
+	end,
+	
+	createSequence = function(self, animations, delayBetween)
+		for i, anim in ipairs(animations) do
+			self:create(anim.instance, anim.tweenInfo, anim.properties, anim.onComplete)
+			if delayBetween and i < #animations then
+				task.wait(delayBetween)
+			end
+		end
+	end
+}
+
+-- 服务
+local HttpService = getService('HttpService')
+local RunService = getService('RunService')
+local UserInputService = getService("UserInputService")
+local TweenService = getService("TweenService")
+local Players = getService("Players")
+local CoreGui = getService("CoreGui")
+
+-- 环境检查
+local useStudio = RunService:IsStudio() or false
+
+-- 常量
+local InterfaceBuild = '3K3W'
+local Release = "Build 1.68 - 增强版"
+local RayfieldFolder = "Rayfield"
+local ConfigurationFolder = RayfieldFolder.."/Configurations"
+local ConfigurationExtension = ".rfld"
+
+-- 配置管理
+local ConfigurationManager = {
+	settingsTable = {
+		General = {
+			rayfieldOpen = {Type = 'bind', Value = 'K', Name = 'Rayfield 快捷键'},
+			animationSpeed = {Type = 'slider', Value = 1, Range = {0.5, 2}, Name = '动画速度'},
+			uiScale = {Type = 'slider', Value = 1, Range = {0.8, 1.2}, Name = '界面缩放'},
+		},
+		System = {
+			usageAnalytics = {Type = 'toggle', Value = true, Name = '匿名分析'},
+			autoSave = {Type = 'toggle', Value = true, Name = '自动保存'},
+			reduceAnimations = {Type = 'toggle', Value = false, Name = '减少动画'},
+		}
+	},
+	
+	overriddenSettings = {},
+	
+	getSetting = function(self, category, name)
+		if self.overriddenSettings[`{category}.{name}`] ~= nil then
+			return self.overriddenSettings[`{category}.{name}`]
+		elseif self.settingsTable[category][name] ~= nil then
+			return self.settingsTable[category][name].Value
+		end
+		return nil
+	end,
+	
+	overrideSetting = function(self, category, name, value)
+		self.overriddenSettings[`{category}.{name}`] = value
+	end,
+	
+	updateSetting = function(self, category, name, value)
+		if self.settingsTable[category][name] then
+			self.settingsTable[category][name].Value = value
+			if self.settingsTable[category][name].Element then
+				self.settingsTable[category][name].Element:Set(value)
+			end
+			self.overriddenSettings[`{category}.{name}`] = nil
+		end
+	end,
+	
+	saveSettings = function(self)
+		if not (writefile and isfile and readfile and isfolder and makefolder) and not useStudio then
+			return false
+		end
+		
+		local encoded = HttpService:JSONEncode(self.settingsTable)
+		if writefile then
+			writefile(RayfieldFolder..'/settings'..ConfigurationExtension, encoded)
+		end
+		return true
+	end,
+	
+	loadSettings = function(self)
+		if not (isfolder and isfile and readfile) then
+			return
+		end
+		
+		if isfolder(RayfieldFolder) and isfile(RayfieldFolder..'/settings'..ConfigurationExtension) then
+			local file = readfile(RayfieldFolder..'/settings'..ConfigurationExtension)
+			local success, decoded = pcall(function() return HttpService:JSONDecode(file) end)
+			
+			if success and decoded then
+				for categoryName, settingCategory in pairs(decoded) do
+					if self.settingsTable[categoryName] then
+						for settingName, settingData in pairs(settingCategory) do
+							if self.settingsTable[categoryName][settingName] then
+								self.settingsTable[categoryName][settingName].Value = settingData.Value
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+}
+
+-- 加载提示和图标库
+local prompt = useStudio and require(script.Parent.prompt) or 
+	loadWithTimeout('https://raw.githubusercontent.com/SiriusSoftwareLtd/Sirius/refs/heads/request/prompt.lua')
+
+local Icons = useStudio and require(script.Parent.icons) or 
+	loadWithTimeout('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/refs/heads/main/icons.lua')
+
+-- 主题系统
+local ThemeSystem = {
+	currentTheme = nil,
+	themes = {
+		Aurora = { -- 极光主题
+			Primary = Color3.fromHex("#6366f1"),
+			Secondary = Color3.fromHex("#8b5cf6"),
+			Accent = Color3.fromHex("#06b6d4"),
+			
+			Background = Color3.fromHex("#0f172a"),
+			Surface = Color3.fromHex("#1e293b"),
+			SurfaceVariant = Color3.fromHex("#334155"),
+			SurfaceElevated = Color3.fromHex("#475569"),
+			
+			TextPrimary = Color3.fromHex("#f1f5f9"),
+			TextSecondary = Color3.fromHex("#cbd5e1"),
+			TextDisabled = Color3.fromHex("#64748b"),
+			
+			Success = Color3.fromHex("#10b981"),
+			Warning = Color3.fromHex("#f59e0b"),
+			Error = Color3.fromHex("#ef4444"),
+			Info = Color3.fromHex("#3b82f6"),
+			
+			Border = Color3.fromHex("#334155"),
+			BorderHover = Color3.fromHex("#475569"),
+			Shadow = Color3.fromHex("#000000"),
+			
+			-- 组件特定颜色
+			Button = Color3.fromHex("#4f46e5"),
+			ButtonHover = Color3.fromHex("#4338ca"),
+			ToggleOn = Color3.fromHex("#6366f1"),
+			ToggleOff = Color3.fromHex("#475569"),
+			SliderTrack = Color3.fromHex("#334155"),
+			SliderFill = Color3.fromHex("#6366f1"),
+			InputBackground = Color3.fromHex("#1e293b"),
+		},
+		
+		NeonNight = { -- 霓虹之夜
+			Primary = Color3.fromHex("#8b5cf6"),
+			Secondary = Color3.fromHex("#ec4899"),
+			Accent = Color3.fromHex("#06d6a0"),
+			
+			Background = Color3.fromHex("#111827"),
+			Surface = Color3.fromHex("#1f2937"),
+			SurfaceVariant = Color3.fromHex("#374151"),
+			SurfaceElevated = Color3.fromHex("#4b5563"),
+			
+			TextPrimary = Color3.fromHex("#ffffff"),
+			TextSecondary = Color3.fromHex("#d1d5db"),
+			TextDisabled = Color3.fromHex("#6b7280"),
+			
+			Success = Color3.fromHex("#10b981"),
+			Warning = Color3.fromHex("#f59e0b"),
+			Error = Color3.fromHex("#ef4444"),
+			Info = Color3.fromHex("#3b82f6"),
+			
+			Border = Color3.fromRGB(59, 130, 246),
+			BorderHover = Color3.fromRGB(96, 165, 250),
+			Shadow = Color3.fromHex("#000000"),
+			
+			Button = Color3.fromHex("#7c3aed"),
+			ButtonHover = Color3.fromHex("#6d28d9"),
+			ToggleOn = Color3.fromHex("#8b5cf6"),
+			ToggleOff = Color3.fromHex("#4b5563"),
+			SliderTrack = Color3.fromHex("#374151"),
+			SliderFill = Color3.fromHex("#8b5cf6"),
+			InputBackground = Color3.fromHex("#1f2937"),
+		},
+		
+		CottonCandy = { -- 棉花糖
+			Primary = Color3.fromHex("#ec4899"),
+			Secondary = Color3.fromHex("#8b5cf6"),
+			Accent = Color3.fromHex("#f59e0b"),
+			
+			Background = Color3.fromHex("#fdf2f8"),
+			Surface = Color3.fromHex("#fce7f3"),
+			SurfaceVariant = Color3.fromHex("#fbcfe8"),
+			SurfaceElevated = Color3.fromHex("#ffffff"),
+			
+			TextPrimary = Color3.fromHex("#701a75"),
+			TextSecondary = Color3.fromHex("#a21caf"),
+			TextDisabled = Color3.fromHex("#d946ef"),
+			
+			Success = Color3.fromHex("#10b981"),
+			Warning = Color3.fromHex("#f59e0b"),
+			Error = Color3.fromHex("#ef4444"),
+			Info = Color3.fromHex("#3b82f6"),
+			
+			Border = Color3.fromHex("#fbcfe8"),
+			BorderHover = Color3.fromHex("#f9a8d4"),
+			Shadow = Color3.fromHex("#f472b6"),
+			
+			Button = Color3.fromHex("#ec4899"),
+			ButtonHover = Color3.fromHex("#db2777"),
+			ToggleOn = Color3.fromHex("#ec4899"),
+			ToggleOff = Color3.fromHex("#fbcfe8"),
+			SliderTrack = Color3.fromHex("#fce7f3"),
+			SliderFill = Color3.fromHex("#ec4899"),
+			InputBackground = Color3.fromHex("#ffffff"),
+		},
+		
+		Midnight = { -- 午夜深蓝
+			Primary = Color3.fromHex("#3b82f6"),
+			Secondary = Color3.fromHex("#06b6d4"),
+			Accent = Color3.fromHex("#8b5cf6"),
+			
+			Background = Color3.fromHex("#0c0e15"),
+			Surface = Color3.fromHex("#141925"),
+			SurfaceVariant = Color3.fromHex("#1e2538"),
+			SurfaceElevated = Color3.fromHex("#2a3249"),
+			
+			TextPrimary = Color3.fromHex("#e2e8f0"),
+			TextSecondary = Color3.fromHex("#94a3b8"),
+			TextDisabled = Color3.fromHex("#475569"),
+			
+			Success = Color3.fromHex("#10b981"),
+			Warning = Color3.fromHex("#f59e0b"),
+			Error = Color3.fromHex("#ef4444"),
+			Info = Color3.fromHex("#3b82f6"),
+			
+			Border = Color3.fromHex("#1e293b"),
+			BorderHover = Color3.fromHex("#334155"),
+			Shadow = Color3.fromHex("#000000"),
+			
+			Button = Color3.fromHex("#2563eb"),
+			ButtonHover = Color3.fromHex("#1d4ed8"),
+			ToggleOn = Color3.fromHex("#3b82f6"),
+			ToggleOff = Color3.fromHex("#475569"),
+			SliderTrack = Color3.fromHex("#1e2538"),
+			SliderFill = Color3.fromHex("#3b82f6"),
+			InputBackground = Color3.fromHex("#141925"),
+		}
+	},
+	
+	setTheme = function(self, themeName)
+		if self.themes[themeName] then
+			self.currentTheme = self.themes[themeName]
+			self:applyTheme()
+			return true
+		end
+		return false
+	end,
+	
+	applyTheme = function(self)
+		if not self.currentTheme then return end
+		
+		-- 这里将在UI加载后实现主题应用
+	end,
+	
+	getCurrentTheme = function(self)
+		return self.currentTheme or self.themes.Aurora
+	end,
+	
+	createCustomTheme = function(self, themeData)
+		local newTheme = {}
+		for key, defaultValue in pairs(self.themes.Aurora) do
+			newTheme[key] = themeData[key] or defaultValue
+		end
+		return newTheme
+	end
+}
+
+-- 工具函数
+local Utils = {
+	getIcon = function(name)
+		if not Icons then
+			warn("Lucide 图标: 图标库未加载")
+			return nil
+		end
+		
+		name = string.lower(name:gsub("%s+", ""))
+		local sizedicons = Icons['48px']
+		local iconData = sizedicons[name]
+		
+		if not iconData then
+			warn(`Lucide 图标: 未找到图标 "{name}"`)
+			return nil
+		end
+		
+		return {
+			id = iconData[1],
+			imageRectSize = Vector2.new(iconData[2][1], iconData[2][2]),
+			imageRectOffset = Vector2.new(iconData[3][1], iconData[3][2])
+		}
+	end,
+	
+	getAssetUri = function(id)
+		if type(id) == "number" then
+			return "rbxassetid://" .. id
+		elseif type(id) == "string" and Icons then
+			local icon = Utils.getIcon(id)
+			if icon then
+				return "rbxassetid://" .. icon.id
+			end
+		end
+		return "rbxassetid://0"
+	end,
+	
+	packColor = function(color)
+		return {R = math.floor(color.R * 255), G = math.floor(color.G * 255), B = math.floor(color.B * 255)}
+	end,
+	
+	unpackColor = function(colorTable)
+		return Color3.fromRGB(colorTable.R, colorTable.G, colorTable.B)
+	end,
+	
+	round = function(num, decimalPlaces)
+		local mult = 10^(decimalPlaces or 0)
+		return math.floor(num * mult + 0.5) / mult
+	end,
+	
+	lerp = function(a, b, t)
+		return a + (b - a) * math.clamp(t, 0, 1)
+	end,
+	
+	lerpColor = function(colorA, colorB, t)
+		return Color3.new(
+			Utils.lerp(colorA.R, colorB.R, t),
+			Utils.lerp(colorA.G, colorB.G, t),
+			Utils.lerp(colorA.B, colorB.B, t)
+		)
+	end,
+	
+	createRoundedCorners = function(instance, cornerRadius)
+		if instance:IsA("GuiObject") then
+			local uiCorner = Instance.new("UICorner")
+			uiCorner.CornerRadius = UDim.new(0, cornerRadius or 8)
+			uiCorner.Parent = instance
+			return uiCorner
+		end
+		return nil
+	end,
+	
+	createStroke = function(instance, color, thickness)
+		if instance:IsA("GuiObject") then
+			local uiStroke = Instance.new("UIStroke")
+			uiStroke.Color = color or Color3.fromRGB(255, 255, 255)
+			uiStroke.Thickness = thickness or 1
+			uiStroke.Parent = instance
+			return uiStroke
+		end
+		return nil
+	end,
+	
+	createShadow = function(instance, color, transparency)
+		if instance:IsA("GuiObject") then
+			local shadow = Instance.new("ImageLabel")
+			shadow.Name = "Shadow"
+			shadow.Image = "rbxassetid://5554236805"
+			shadow.ImageColor3 = color or Color3.fromRGB(0, 0, 0)
+			shadow.ImageTransparency = transparency or 0.8
+			shadow.BackgroundTransparency = 1
+			shadow.Size = UDim2.new(1, 10, 1, 10)
+			shadow.Position = UDim2.new(0, -5, 0, -5)
+			shadow.ScaleType = Enum.ScaleType.Slice
+			shadow.SliceCenter = Rect.new(23, 23, 277, 277)
+			shadow.ZIndex = instance.ZIndex - 1
+			
+			local parent = instance.Parent
+			if parent then
+				shadow.Parent = parent
+			end
+			
+			return shadow
+		end
+		return nil
+	end
+}
+
+-- 组件工厂
+local ComponentFactory = {
+	createButton = function(properties)
+		local theme = ThemeSystem:getCurrentTheme()
+		
+		local buttonFrame = Instance.new("Frame")
+		buttonFrame.Name = properties.Name or "Button"
+		buttonFrame.BackgroundColor3 = theme.Button
+		buttonFrame.BackgroundTransparency = 0
+		buttonFrame.Size = UDim2.new(1, -20, 0, 40)
+		
+		Utils.createRoundedCorners(buttonFrame, 8)
+		Utils.createStroke(buttonFrame, theme.Border, 1)
+		Utils.createShadow(buttonFrame, theme.Shadow, 0.5)
+		
+		local title = Instance.new("TextLabel")
+		title.Name = "Title"
+		title.Text = properties.Name or "按钮"
+		title.Font = Enum.Font.GothamSemibold
+		title.TextColor3 = Color3.fromRGB(255, 255, 255)
+		title.TextSize = 14
+		title.BackgroundTransparency = 1
+		title.Size = UDim2.new(1, 0, 1, 0)
+		title.Parent = buttonFrame
+		
+		local interact = Instance.new("TextButton")
+		interact.Name = "Interact"
+		interact.Text = ""
+		interact.BackgroundTransparency = 1
+		interact.Size = UDim2.new(1, 0, 1, 0)
+		interact.Parent = buttonFrame
+		
+		-- 悬停效果
+		interact.MouseEnter:Connect(function()
+			AnimationManager:create(buttonFrame, 
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad), 
+				{BackgroundColor3 = theme.ButtonHover}
+			)
+		end)
+		
+		interact.MouseLeave:Connect(function()
+			AnimationManager:create(buttonFrame, 
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad), 
+				{BackgroundColor3 = theme.Button}
+			)
+		end)
+		
+		-- 点击效果
+		interact.MouseButton1Down:Connect(function()
+			AnimationManager:create(buttonFrame, 
+				TweenInfo.new(0.1, Enum.EasingStyle.Quad), 
+				{Size = UDim2.new(1, -25, 0, 38)}
+			)
+		end)
+		
+		interact.MouseButton1Up:Connect(function()
+			AnimationManager:create(buttonFrame, 
+				TweenInfo.new(0.1, Enum.EasingStyle.Quad), 
+				{Size = UDim2.new(1, -20, 0, 40)}
+			)
+			
+			if properties.Callback then
+				local success, err = pcall(properties.Callback)
+				if not success then
+					warn(`按钮回调错误: {err}`)
+				end
+			end
+		end)
+		
+		return buttonFrame
+	end,
+	
+	createToggle = function(properties)
+		local theme = ThemeSystem:getCurrentTheme()
+		
+		local toggleFrame = Instance.new("Frame")
+		toggleFrame.Name = properties.Name or "Toggle"
+		toggleFrame.BackgroundColor3 = theme.Surface
+		toggleFrame.BackgroundTransparency = 0
+		toggleFrame.Size = UDim2.new(1, -20, 0, 40)
+		
+		Utils.createRoundedCorners(toggleFrame, 8)
+		Utils.createStroke(toggleFrame, theme.Border, 1)
+		
+		local title = Instance.new("TextLabel")
+		title.Name = "Title"
+		title.Text = properties.Name or "开关"
+		title.Font = Enum.Font.GothamSemibold
+		title.TextColor3 = theme.TextPrimary
+		title.TextSize = 14
+		title.BackgroundTransparency = 1
+		title.Size = UDim2.new(0.7, -10, 1, 0)
+		title.Position = UDim2.new(0, 10, 0, 0)
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Parent = toggleFrame
+		
+		local switchContainer = Instance.new("Frame")
+		switchContainer.Name = "SwitchContainer"
+		switchContainer.BackgroundTransparency = 1
+		switchContainer.Size = UDim2.new(0.3, -10, 1, 0)
+		switchContainer.Position = UDim2.new(0.7, 0, 0, 0)
+		switchContainer.Parent = toggleFrame
+		
+		local switchTrack = Instance.new("Frame")
+		switchTrack.Name = "Track"
+		switchTrack.BackgroundColor3 = theme.ToggleOff
+		switchTrack.Size = UDim2.new(1, 0, 0, 24)
+		switchTrack.Position = UDim2.new(0, 0, 0.5, -12)
+		switchTrack.Parent = switchContainer
+		Utils.createRoundedCorners(switchTrack, 12)
+		
+		local switchThumb = Instance.new("Frame")
+		switchThumb.Name = "Thumb"
+		switchThumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		switchThumb.Size = UDim2.new(0, 20, 0, 20)
+		switchThumb.Position = UDim2.new(0, 2, 0.5, -10)
+		switchThumb.Parent = switchContainer
+		Utils.createRoundedCorners(switchThumb, 10)
+		Utils.createShadow(switchThumb, theme.Shadow, 0.3)
+		
+		local interact = Instance.new("TextButton")
+		interact.Name = "Interact"
+		interact.Text = ""
+		interact.BackgroundTransparency = 1
+		interact.Size = UDim2.new(1, 0, 1, 0)
+		interact.Parent = toggleFrame
+		
+		local isToggled = properties.CurrentValue or false
+		
+		local function updateToggle()
+			if isToggled then
+				AnimationManager:create(switchTrack, 
+					TweenInfo.new(0.3, Enum.EasingStyle.Quad), 
+					{BackgroundColor3 = theme.ToggleOn}
+				)
+				AnimationManager:create(switchThumb, 
+					TweenInfo.new(0.3, Enum.EasingStyle.Quad), 
+					{Position = UDim2.new(1, -22, 0.5, -10)}
+				)
+			else
+				AnimationManager:create(switchTrack, 
+					TweenInfo.new(0.3, Enum.EasingStyle.Quad), 
+					{BackgroundColor3 = theme.ToggleOff}
+				)
+				AnimationManager:create(switchThumb, 
+					TweenInfo.new(0.3, Enum.EasingStyle.Quad), 
+					{Position = UDim2.new(0, 2, 0.5, -10)}
+				)
+			end
+		end
+		
+		updateToggle()
+		
+		interact.MouseButton1Click:Connect(function()
+			isToggled = not isToggled
+			updateToggle()
+			
+			if properties.Callback then
+				local success, err = pcall(properties.Callback, isToggled)
+				if not success then
+					warn(`开关回调错误: {err}`)
+				end
+			end
+		end)
+		
+		-- 悬停效果
+		interact.MouseEnter:Connect(function()
+			AnimationManager:create(toggleFrame, 
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad), 
+				{BackgroundColor3 = theme.SurfaceVariant}
+			)
+		end)
+		
+		interact.MouseLeave:Connect(function()
+			AnimationManager:create(toggleFrame, 
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad), 
+				{BackgroundColor3 = theme.Surface}
+			)
+		end)
+		
+		return {
+			Frame = toggleFrame,
+			Set = function(value)
+				isToggled = value
+				updateToggle()
+			end,
+			Get = function()
+				return isToggled
+			end
+		}
+	end,
+	
+	createSlider = function(properties)
+		local theme = ThemeSystem:getCurrentTheme()
+		
+		local sliderFrame = Instance.new("Frame")
+		sliderFrame.Name = properties.Name or "Slider"
+		sliderFrame.BackgroundColor3 = theme.Surface
+		sliderFrame.BackgroundTransparency = 0
+		sliderFrame.Size = UDim2.new(1, -20, 0, 60)
+		
+		Utils.createRoundedCorners(sliderFrame, 8)
+		Utils.createStroke(sliderFrame, theme.Border, 1)
+		
+		local titleContainer = Instance.new("Frame")
+		titleContainer.Name = "TitleContainer"
+		titleContainer.BackgroundTransparency = 1
+		titleContainer.Size = UDim2.new(1, -20, 0, 20)
+		titleContainer.Position = UDim2.new(0, 10, 0, 5)
+		titleContainer.Parent = sliderFrame
+		
+		local title = Instance.new("TextLabel")
+		title.Name = "Title"
+		title.Text = properties.Name or "滑块"
+		title.Font = Enum.Font.GothamSemibold
+		title.TextColor3 = theme.TextPrimary
+		title.TextSize = 14
+		title.BackgroundTransparency = 1
+		title.Size = UDim2.new(0.7, 0, 1, 0)
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Parent = titleContainer
+		
+		local valueLabel = Instance.new("TextLabel")
+		valueLabel.Name = "Value"
+		valueLabel.Text = tostring(properties.CurrentValue or 0)
+		valueLabel.Font = Enum.Font.Gotham
+		valueLabel.TextColor3 = theme.TextSecondary
+		valueLabel.TextSize = 12
+		valueLabel.BackgroundTransparency = 1
+		valueLabel.Size = UDim2.new(0.3, 0, 1, 0)
+		valueLabel.Position = UDim2.new(0.7, 0, 0, 0)
+		valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+		valueLabel.Parent = titleContainer
+		
+		local sliderContainer = Instance.new("Frame")
+		sliderContainer.Name = "SliderContainer"
+		sliderContainer.BackgroundTransparency = 1
+		sliderContainer.Size = UDim2.new(1, -20, 0, 20)
+		sliderContainer.Position = UDim2.new(0, 10, 0, 30)
+		sliderContainer.Parent = sliderFrame
+		
+		local track = Instance.new("Frame")
+		track.Name = "Track"
+		track.BackgroundColor3 = theme.SliderTrack
+		track.Size = UDim2.new(1, 0, 0, 6)
+		track.Position = UDim2.new(0, 0, 0.5, -3)
+		track.Parent = sliderContainer
+		Utils.createRoundedCorners(track, 3)
+		
+		local fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.BackgroundColor3 = theme.SliderFill
+		fill.Size = UDim2.new(0, 0, 1, 0)
+		fill.Position = UDim2.new(0, 0, 0, 0)
+		fill.Parent = track
+		Utils.createRoundedCorners(fill, 3)
+		
+		local thumb = Instance.new("Frame")
+		thumb.Name = "Thumb"
+		thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		thumb.Size = UDim2.new(0, 16, 0, 16)
+		thumb.Position = UDim2.new(0, -8, 0.5, -8)
+		thumb.Parent = sliderContainer
+		Utils.createRoundedCorners(thumb, 8)
+		Utils.createShadow(thumb, theme.Shadow, 0.3)
+		
+		local range = properties.Range or {0, 100}
+		local increment = properties.Increment or 1
+		local currentValue = properties.CurrentValue or range[1]
+		local isDragging = false
+		
+		local function updateSlider(value)
+			value = math.clamp(value, range[1], range[2])
+			value = math.floor(value / increment + 0.5) * increment
+			currentValue = value
+			
+			local percentage = (value - range[1]) / (range[2] - range[1])
+			local fillWidth = track.AbsoluteSize.X * percentage
+			
+			AnimationManager:create(fill, 
+				TweenInfo.new(0.1, Enum.EasingStyle.Quad), 
+				{Size = UDim2.new(percentage, 0, 1, 0)}
+			)
+			
+			AnimationManager:create(thumb, 
+				TweenInfo.new(0.1, Enum.EasingStyle.Quad), 
+				{Position = UDim2.new(percentage, -8, 0.5, -8)}
+			)
+			
+			valueLabel.Text = tostring(value) .. (properties.Suffix or "")
+		end
+		
+		updateSlider(currentValue)
+		
+		local function handleDrag()
+			if not isDragging then return end
+			
+			local mouse = UserInputService:GetMouseLocation()
+			local relativeX = mouse.X - track.AbsolutePosition.X
+			local percentage = math.clamp(relativeX / track.AbsoluteSize.X, 0, 1)
+			local value = range[1] + percentage * (range[2] - range[1])
+			
+			updateSlider(value)
+			
+			if properties.Callback then
+				local success, err = pcall(properties.Callback, currentValue)
+				if not success then
+					warn(`滑块回调错误: {err}`)
+				end
+			end
+		end
+		
+		sliderContainer.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				isDragging = true
+				handleDrag()
+			end
+		end)
+		
+		UserInputService.InputChanged:Connect(function(input)
+			if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+				handleDrag()
+			end
+		end)
+		
+		UserInputService.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				isDragging = false
+			end
+		end)
+		
+		-- 悬停效果
+		sliderContainer.MouseEnter:Connect(function()
+			AnimationManager:create(thumb, 
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad), 
+				{Size = UDim2.new(0, 20, 0, 20)}
+			)
+		end)
+		
+		sliderContainer.MouseLeave:Connect(function()
+			AnimationManager:create(thumb, 
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad), 
+				{Size = UDim2.new(0, 16, 0, 16)}
+			)
+		end)
+		
+		return {
+			Frame = sliderFrame,
+			Set = function(value)
+				updateSlider(value)
+				if properties.Callback then
+					pcall(properties.Callback, currentValue)
+				end
+			end,
+			Get = function()
+				return currentValue
+			end
+		}
+	end
+}
+
+-- 主库
+local RayfieldLibrary = {
+	Flags = {},
+	Windows = {},
+	_currentWindow = nil,
+	
+	Version = Release,
+	Build = InterfaceBuild
+}
+
+-- 通知系统
+function RayfieldLibrary:Notify(notificationData)
+	task.spawn(function()
+		local theme = ThemeSystem:getCurrentTheme()
+		
+		-- 创建通知容器
+		local notification = Instance.new("Frame")
+		notification.Name = "Notification_" .. HttpService:GenerateGUID(false)
+		notification.BackgroundColor3 = theme.Surface
+		notification.BackgroundTransparency = 1
+		notification.Size = UDim2.new(0, 300, 0, 0)
+		notification.Position = UDim2.new(1, 10, 1, -10)
+		notification.AnchorPoint = Vector2.new(1, 1)
+		notification.ZIndex = 1000
+		
+		Utils.createRoundedCorners(notification, 12)
+		Utils.createStroke(notification, theme.Border, 1)
+		Utils.createShadow(notification, theme.Shadow, 0.6)
+		
+		-- 图标
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.BackgroundTransparency = 1
+		icon.Size = UDim2.new(0, 24, 0, 24)
+		icon.Position = UDim2.new(0, 15, 0, 15)
+		icon.Image = Utils.getAssetUri(notificationData.Image or "info")
+		icon.ImageColor3 = theme.Primary
+		icon.ImageTransparency = 1
+		icon.Parent = notification
+		
+		-- 标题
+		local title = Instance.new("TextLabel")
+		title.Name = "Title"
+		title.Text = notificationData.Title or "通知"
+		title.Font = Enum.Font.GothamSemibold
+		title.TextColor3 = theme.TextPrimary
+		title.TextSize = 14
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.BackgroundTransparency = 1
+		title.Size = UDim2.new(1, -60, 0, 20)
+		title.Position = UDim2.new(0, 50, 0, 15)
+		title.TextTransparency = 1
+		title.Parent = notification
+		
+		-- 内容
+		local content = Instance.new("TextLabel")
+		content.Name = "Content"
+		content.Text = notificationData.Content or ""
+		content.Font = Enum.Font.Gotham
+		content.TextColor3 = theme.TextSecondary
+		content.TextSize = 12
+		content.TextXAlignment = Enum.TextXAlignment.Left
+		content.TextYAlignment = Enum.TextYAlignment.Top
+		content.BackgroundTransparency = 1
+		content.Size = UDim2.new(1, -60, 1, -40)
+		content.Position = UDim2.new(0, 50, 0, 40)
+		content.TextWrapped = true
+		content.TextTransparency = 1
+		content.Parent = notification
+		
+		-- 进度条
+		local progressBar = Instance.new("Frame")
+		progressBar.Name = "Progress"
+		progressBar.BackgroundColor3 = theme.Primary
+		progressBar.Size = UDim2.new(1, 0, 0, 3)
+		progressBar.Position = UDim2.new(0, 0, 1, -3)
+		progressBar.Parent = notification
+		
+		-- 计算高度
+		local contentSize = content.TextBounds.Y + 70
+		local finalHeight = math.max(80, math.min(contentSize, 200))
+		notification.Size = UDim2.new(0, 300, 0, finalHeight)
+		
+		-- 添加到屏幕
+		if gethui then
+			notification.Parent = gethui()
+		elseif syn and syn.protect_gui then 
+			syn.protect_gui(notification)
+			notification.Parent = CoreGui
+		else
+			notification.Parent = CoreGui
+		end
+		
+		-- 进场动画
+		AnimationManager:createSequence({
+			{
+				instance = notification,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart),
+				properties = {BackgroundTransparency = 0, Position = UDim2.new(1, -10, 1, -20)}
+			},
+			{
+				instance = icon,
+				tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				properties = {ImageTransparency = 0}
+			},
+			{
+				instance = title,
+				tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 0}
+			},
+			{
+				instance = content,
+				tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 0.3}
+			}
+		}, 0.05)
+		
+		-- 进度条动画
+		local duration = notificationData.Duration or 5
+		AnimationManager:create(progressBar,
+			TweenInfo.new(duration, Enum.EasingStyle.Linear),
+			{Size = UDim2.new(0, 0, 0, 3)}
+		)
+		
+		-- 等待并淡出
+		task.wait(duration)
+		
+		AnimationManager:createSequence({
+			{
+				instance = content,
+				tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 1}
+			},
+			{
+				instance = title,
+				tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 1}
+			},
+			{
+				instance = icon,
+				tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				properties = {ImageTransparency = 1}
+			},
+			{
+				instance = notification,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart),
+				properties = {BackgroundTransparency = 1, Position = UDim2.new(1, 10, 1, -10)}
+			}
+		}, 0.05)
+		
+		task.wait(0.3)
+		notification:Destroy()
+	end)
+end
+
+-- 创建窗口
+function RayfieldLibrary:CreateWindow(windowSettings)
+	print('正在创建窗口: ' .. (windowSettings.Name or "未命名"))
+	
+	-- 设置默认主题
+	ThemeSystem:setTheme(windowSettings.Theme or "Aurora")
+	
+	-- 创建窗口实例
+	local Rayfield = Instance.new("ScreenGui")
+	Rayfield.Name = "RayfieldWindow"
+	Rayfield.DisplayOrder = 100
+	Rayfield.Enabled = false
+	
+	-- 窗口主容器
+	local Main = Instance.new("Frame")
+	Main.Name = "Main"
+	Main.BackgroundColor3 = ThemeSystem:getCurrentTheme().Background
+	Main.BackgroundTransparency = 0
+	Main.Size = UDim2.new(0, 500, 0, 0)
+	Main.Position = UDim2.new(0.5, 0, 0.5, 0)
+	Main.AnchorPoint = Vector2.new(0.5, 0.5)
+	Main.ClipsDescendants = true
+	Main.Parent = Rayfield
+	
+	Utils.createRoundedCorners(Main, 12)
+	Utils.createShadow(Main, ThemeSystem:getCurrentTheme().Shadow, 0.4)
+	
+	-- 顶部栏
+	local Topbar = Instance.new("Frame")
+	Topbar.Name = "Topbar"
+	Topbar.BackgroundColor3 = ThemeSystem:getCurrentTheme().Surface
+	Topbar.Size = UDim2.new(1, 0, 0, 50)
+	Topbar.Position = UDim2.new(0, 0, 0, 0)
+	Topbar.Parent = Main
+	
+	Utils.createRoundedCorners(Topbar, {TopLeft = 12, TopRight = 12})
+	
+	-- 标题
+	local Title = Instance.new("TextLabel")
+	Title.Name = "Title"
+	Title.Text = windowSettings.Name or "Rayfield 窗口"
+	Title.Font = Enum.Font.GothamSemibold
+	Title.TextColor3 = ThemeSystem:getCurrentTheme().TextPrimary
+	Title.TextSize = 18
+	Title.BackgroundTransparency = 1
+	Title.Size = UDim2.new(1, -100, 1, 0)
+	Title.Position = UDim2.new(0, 15, 0, 0)
+	Title.TextXAlignment = Enum.TextXAlignment.Left
+	Title.Parent = Topbar
+	
+	-- 图标
+	if windowSettings.Icon then
+		local Icon = Instance.new("ImageLabel")
+		Icon.Name = "Icon"
+		Icon.Image = Utils.getAssetUri(windowSettings.Icon)
+		Icon.ImageColor3 = ThemeSystem:getCurrentTheme().Primary
+		Icon.Size = UDim2.new(0, 24, 0, 24)
+		Icon.Position = UDim2.new(0, 15, 0.5, -12)
+		Icon.BackgroundTransparency = 1
+		Icon.Parent = Topbar
+		
+		Title.Position = UDim2.new(0, 50, 0, 0)
+		Title.Size = UDim2.new(1, -135, 1, 0)
+	end
+	
+	-- 顶部按钮
+	local buttonSize = 30
+	local buttonSpacing = 10
+	
+	-- 搜索按钮
+	local SearchButton = Instance.new("ImageButton")
+	SearchButton.Name = "Search"
+	SearchButton.Image = Utils.getAssetUri("search")
+	SearchButton.ImageColor3 = ThemeSystem:getCurrentTheme().TextSecondary
+	SearchButton.Size = UDim2.new(0, buttonSize, 0, buttonSize)
+	SearchButton.Position = UDim2.new(1, -(buttonSize*3 + buttonSpacing*3), 0.5, -buttonSize/2)
+	SearchButton.BackgroundTransparency = 1
+	SearchButton.Parent = Topbar
+	
+	-- 设置按钮
+	local SettingsButton = Instance.new("ImageButton")
+	SettingsButton.Name = "Settings"
+	SettingsButton.Image = Utils.getAssetUri("settings")
+	SettingsButton.ImageColor3 = ThemeSystem:getCurrentTheme().TextSecondary
+	SettingsButton.Size = UDim2.new(0, buttonSize, 0, buttonSize)
+	SettingsButton.Position = UDim2.new(1, -(buttonSize*2 + buttonSpacing*2), 0.5, -buttonSize/2)
+	SettingsButton.BackgroundTransparency = 1
+	SettingsButton.Parent = Topbar
+	
+	-- 最小化按钮
+	local MinimizeButton = Instance.new("ImageButton")
+	MinimizeButton.Name = "Minimize"
+	MinimizeButton.Image = Utils.getAssetUri("minimize-2")
+	MinimizeButton.ImageColor3 = ThemeSystem:getCurrentTheme().TextSecondary
+	MinimizeButton.Size = UDim2.new(0, buttonSize, 0, buttonSize)
+	MinimizeButton.Position = UDim2.new(1, -(buttonSize + buttonSpacing), 0.5, -buttonSize/2)
+	MinimizeButton.BackgroundTransparency = 1
+	MinimizeButton.Parent = Topbar
+	
+	-- 关闭按钮
+	local CloseButton = Instance.new("ImageButton")
+	CloseButton.Name = "Close"
+	CloseButton.Image = Utils.getAssetUri("x")
+	CloseButton.ImageColor3 = ThemeSystem:getCurrentTheme().Error
+	CloseButton.Size = UDim2.new(0, buttonSize, 0, buttonSize)
+	CloseButton.Position = UDim2.new(1, -buttonSpacing, 0.5, -buttonSize/2)
+	CloseButton.BackgroundTransparency = 1
+	CloseButton.Parent = Topbar
+	
+	-- 内容区域
+	local Content = Instance.new("Frame")
+	Content.Name = "Content"
+	Content.BackgroundTransparency = 1
+	Content.Size = UDim2.new(1, 0, 1, -50)
+	Content.Position = UDim2.new(0, 0, 0, 50)
+	Content.Parent = Main
+	
+	-- 标签页容器
+	local TabContainer = Instance.new("ScrollingFrame")
+	TabContainer.Name = "TabContainer"
+	TabContainer.BackgroundTransparency = 1
+	TabContainer.Size = UDim2.new(0, 150, 1, 0)
+	TabContainer.Position = UDim2.new(0, 0, 0, 0)
+	TabContainer.ScrollBarImageTransparency = 0.8
+	TabContainer.ScrollBarThickness = 3
+	TabContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	TabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+	TabContainer.Parent = Content
+	
+	local TabListLayout = Instance.new("UIListLayout")
+	TabListLayout.Name = "TabListLayout"
+	TabListLayout.Padding = UDim.new(0, 5)
+	TabListLayout.Parent = TabContainer
+	
+	-- 页面容器
+	local PageContainer = Instance.new("Frame")
+	PageContainer.Name = "PageContainer"
+	PageContainer.BackgroundTransparency = 1
+	PageContainer.Size = UDim2.new(1, -150, 1, 0)
+	PageContainer.Position = UDim2.new(0, 150, 0, 0)
+	PageContainer.Parent = Content
+	
+	local Pages = Instance.new("Folder")
+	Pages.Name = "Pages"
+	Pages.Parent = PageContainer
+	
+	-- 搜索框
+	local SearchBox = Instance.new("Frame")
+	SearchBox.Name = "SearchBox"
+	SearchBox.BackgroundColor3 = ThemeSystem:getCurrentTheme().SurfaceVariant
+	SearchBox.Size = UDim2.new(1, -20, 0, 40)
+	SearchBox.Position = UDim2.new(0, 10, 0, 10)
+	SearchBox.Visible = false
+	SearchBox.Parent = PageContainer
+	
+	Utils.createRoundedCorners(SearchBox, 8)
+	
+	local SearchIcon = Instance.new("ImageLabel")
+	SearchIcon.Name = "SearchIcon"
+	SearchIcon.Image = Utils.getAssetUri("search")
+	SearchIcon.ImageColor3 = ThemeSystem:getCurrentTheme().TextSecondary
+	SearchIcon.Size = UDim2.new(0, 20, 0, 20)
+	SearchIcon.Position = UDim2.new(0, 10, 0.5, -10)
+	SearchIcon.BackgroundTransparency = 1
+	SearchIcon.Parent = SearchBox
+	
+	local SearchInput = Instance.new("TextBox")
+	SearchInput.Name = "Input"
+	SearchInput.PlaceholderText = "搜索..."
+	SearchInput.Text = ""
+	SearchInput.Font = Enum.Font.Gotham
+	SearchInput.TextColor3 = ThemeSystem:getCurrentTheme().TextPrimary
+	SearchInput.PlaceholderColor3 = ThemeSystem:getCurrentTheme().TextSecondary
+	SearchInput.TextSize = 14
+	SearchInput.BackgroundTransparency = 1
+	SearchInput.Size = UDim2.new(1, -40, 1, 0)
+	SearchInput.Position = UDim2.new(0, 40, 0, 0)
+	SearchInput.Parent = SearchBox
+	
+	-- 加载动画
+	local LoadingFrame = Instance.new("Frame")
+	LoadingFrame.Name = "LoadingFrame"
+	LoadingFrame.BackgroundColor3 = ThemeSystem:getCurrentTheme().Background
+	LoadingFrame.Size = UDim2.new(1, 0, 1, 0)
+	LoadingFrame.Position = UDim2.new(0, 0, 0, 0)
+	LoadingFrame.Visible = true
+	LoadingFrame.Parent = Main
+	
+	local LoadingSpinner = Instance.new("ImageLabel")
+	LoadingSpinner.Name = "Spinner"
+	LoadingSpinner.Image = "rbxassetid://6026568195"
+	LoadingSpinner.ImageColor3 = ThemeSystem:getCurrentTheme().Primary
+	LoadingSpinner.Rotation = 0
+	LoadingSpinner.Size = UDim2.new(0, 60, 0, 60)
+	LoadingSpinner.Position = UDim2.new(0.5, -30, 0.5, -30)
+	LoadingSpinner.BackgroundTransparency = 1
+	LoadingSpinner.Parent = LoadingFrame
+	
+	local LoadingTitle = Instance.new("TextLabel")
+	LoadingTitle.Name = "Title"
+	LoadingTitle.Text = windowSettings.LoadingTitle or "Rayfield"
+	LoadingTitle.Font = Enum.Font.GothamSemibold
+	LoadingTitle.TextColor3 = ThemeSystem:getCurrentTheme().TextPrimary
+	LoadingTitle.TextSize = 24
+	LoadingTitle.BackgroundTransparency = 1
+	LoadingTitle.Size = UDim2.new(1, 0, 0, 30)
+	LoadingTitle.Position = UDim2.new(0, 0, 0.5, 40)
+	LoadingTitle.Parent = LoadingFrame
+	
+	local LoadingSubtitle = Instance.new("TextLabel")
+	LoadingSubtitle.Name = "Subtitle"
+	LoadingSubtitle.Text = windowSettings.LoadingSubtitle or "界面套件"
+	LoadingSubtitle.Font = Enum.Font.Gotham
+	LoadingSubtitle.TextColor3 = ThemeSystem:getCurrentTheme().TextSecondary
+	LoadingSubtitle.TextSize = 14
+	LoadingSubtitle.BackgroundTransparency = 1
+	LoadingSubtitle.Size = UDim2.new(1, 0, 0, 20)
+	LoadingSubtitle.Position = UDim2.new(0, 0, 0.5, 70)
+	LoadingSubtitle.Parent = LoadingFrame
+	
+	-- 添加到游戏
+	if gethui then
+		Rayfield.Parent = gethui()
+	elseif syn and syn.protect_gui then 
+		syn.protect_gui(Rayfield)
+		Rayfield.Parent = CoreGui
+	else
+		Rayfield.Parent = CoreGui
+	end
+	
+	-- 窗口对象
+	local Window = {
+		_gui = Rayfield,
+		_main = Main,
+		_tabs = {},
+		_currentTab = nil,
+		_isMinimized = false,
+		_isVisible = true,
+		
+		Show = function(self)
+			if StateManager:get("debounce") then return end
+			
+			StateManager:setDebounce(true, 0.5)
+			self._gui.Enabled = true
+			self._isVisible = true
+			
+			AnimationManager:create(self._main,
+				TweenInfo.new(0.5, Enum.EasingStyle.Quart),
+				{Size = UDim2.new(0, 500, 0, 400)}
+			)
+			
+			StateManager:setDebounce(false)
+			return self
+		end,
+		
+		Hide = function(self)
+			if StateManager:get("debounce") then return end
+			
+			StateManager:setDebounce(true, 0.5)
+			self._isVisible = false
+			
+			AnimationManager:create(self._main,
+				TweenInfo.new(0.5, Enum.EasingStyle.Quart),
+				{Size = UDim2.new(0, 500, 0, 0)}
+			)
+			
+			task.wait(0.5)
+			self._gui.Enabled = false
+			StateManager:setDebounce(false)
+			return self
+		end,
+		
+		Toggle = function(self)
+			if self._isVisible then
+				self:Hide()
+			else
+				self:Show()
+			end
+			return self
+		end,
+		
+		Destroy = function(self)
+			AnimationManager:cancelAll()
+			ConnectionManager:disconnectAll()
+			self._gui:Destroy()
+			return nil
+		end,
+		
+		SetTheme = function(self, themeName)
+			if ThemeSystem:setTheme(themeName) then
+				-- 更新所有UI颜色
+				local theme = ThemeSystem:getCurrentTheme()
+				
+				self._main.BackgroundColor3 = theme.Background
+				self._main.Topbar.BackgroundColor3 = theme.Surface
+				self._main.Topbar.Title.TextColor3 = theme.TextPrimary
+				
+				-- 更新按钮颜色
+				local topbarButtons = {"Search", "Settings", "Minimize", "Close"}
+				for _, buttonName in ipairs(topbarButtons) do
+					local button = self._main.Topbar:FindFirstChild(buttonName)
+					if button then
+						if buttonName == "Close" then
+							button.ImageColor3 = theme.Error
+						else
+							button.ImageColor3 = theme.TextSecondary
+						end
+					end
+				end
+				
+				return true
+			end
+			return false
+		end,
+		
+		CreateTab = function(self, tabName, tabIcon)
+			local tabId = #self._tabs + 1
+			
+			-- 标签按钮
+			local TabButton = Instance.new("TextButton")
+			TabButton.Name = "Tab_" .. tabId
+			TabButton.Text = ""
+			TabButton.BackgroundColor3 = ThemeSystem:getCurrentTheme().SurfaceVariant
+			TabButton.Size = UDim2.new(1, -10, 0, 40)
+			TabButton.Position = UDim2.new(0, 5, 0, (40 + 5) * (tabId - 1) + 5)
+			
+			Utils.createRoundedCorners(TabButton, 8)
+			
+			local ButtonContent = Instance.new("Frame")
+			ButtonContent.Name = "Content"
+			ButtonContent.BackgroundTransparency = 1
+			ButtonContent.Size = UDim2.new(1, -20, 1, 0)
+			ButtonContent.Position = UDim2.new(0, 10, 0, 0)
+			ButtonContent.Parent = TabButton
+			
+			local Title = Instance.new("TextLabel")
+			Title.Name = "Title"
+			Title.Text = tabName
+			Title.Font = Enum.Font.GothamSemibold
+			Title.TextColor3 = ThemeSystem:getCurrentTheme().TextPrimary
+			Title.TextSize = 14
+			Title.BackgroundTransparency = 1
+			Title.Size = UDim2.new(1, tabIcon and -30 or 0, 1, 0)
+			Title.Position = UDim2.new(0, tabIcon and 30 or 0, 0, 0)
+			Title.TextXAlignment = Enum.TextXAlignment.Left
+			Title.Parent = ButtonContent
+			
+			if tabIcon then
+				local Icon = Instance.new("ImageLabel")
+				Icon.Name = "Icon"
+				Icon.Image = Utils.getAssetUri(tabIcon)
+				Icon.ImageColor3 = ThemeSystem:getCurrentTheme().Primary
+				Icon.Size = UDim2.new(0, 20, 0, 20)
+				Icon.Position = UDim2.new(0, 0, 0.5, -10)
+				Icon.BackgroundTransparency = 1
+				Icon.Parent = ButtonContent
+			end
+			
+			TabButton.Parent = self._main.Content.TabContainer
+			
+			-- 标签页
+			local TabPage = Instance.new("ScrollingFrame")
+			TabPage.Name = "Page_" .. tabId
+			TabPage.Visible = tabId == 1
+			TabPage.BackgroundTransparency = 1
+			TabPage.Size = UDim2.new(1, -20, 1, -20)
+			TabPage.Position = UDim2.new(0, 10, 0, 10)
+			TabPage.ScrollBarImageTransparency = 0.8
+			TabPage.ScrollBarThickness = 3
+			TabPage.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			TabPage.CanvasSize = UDim2.new(0, 0, 0, 0)
+			TabPage.Parent = self._main.Content.PageContainer.Pages
+			
+			local PageLayout = Instance.new("UIListLayout")
+			PageLayout.Name = "Layout"
+			PageLayout.Padding = UDim.new(0, 10)
+			PageLayout.Parent = TabPage
+			
+			-- 标签交互
+			TabButton.MouseButton1Click:Connect(function()
+				if self._currentTab == tabId then return end
+				
+				-- 更新所有标签状态
+				for i, _ in ipairs(self._tabs) do
+					local button = self._main.Content.TabContainer:FindFirstChild("Tab_" .. i)
+					local page = self._main.Content.PageContainer.Pages:FindFirstChild("Page_" .. i)
+					
+					if button then
+						AnimationManager:create(button,
+							TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+							{BackgroundColor3 = ThemeSystem:getCurrentTheme().SurfaceVariant}
+						)
+					end
+					
+					if page then
+						page.Visible = false
+					end
+				end
+				
+				-- 激活当前标签
+				self._currentTab = tabId
+				TabPage.Visible = true
+				
+				AnimationManager:create(TabButton,
+					TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+					{BackgroundColor3 = ThemeSystem:getCurrentTheme().Primary}
+				)
+				
+				-- 更新标签标题颜色
+				local content = TabButton:FindFirstChild("Content")
+				if content then
+					local title = content:FindFirstChild("Title")
+					if title then
+						AnimationManager:create(title,
+							TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+							{TextColor3 = Color3.fromRGB(255, 255, 255)}
+						)
+					end
+				end
+			end)
+			
+			-- 悬停效果
+			TabButton.MouseEnter:Connect(function()
+				if self._currentTab ~= tabId then
+					AnimationManager:create(TabButton,
+						TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+						{BackgroundColor3 = ThemeSystem:getCurrentTheme().SurfaceElevated}
+					)
+				end
+			end)
+			
+			TabButton.MouseLeave:Connect(function()
+				if self._currentTab ~= tabId then
+					AnimationManager:create(TabButton,
+						TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+						{BackgroundColor3 = ThemeSystem:getCurrentTheme().SurfaceVariant}
+					)
+				end
+			end)
+			
+			-- 标签对象
+			local TabObject = {
+				_id = tabId,
+				_name = tabName,
+				_button = TabButton,
+				_page = TabPage,
+				
+				CreateButton = function(self, buttonSettings)
+					local button = ComponentFactory.createButton(buttonSettings)
+					button.Parent = TabPage
+					
+					local buttonObj = {
+						SetText = function(text)
+							local title = button:FindFirstChild("Title")
+							if title then
+								title.Text = text
+							end
+						end,
+						SetCallback = function(callback)
+							-- 这里需要重新绑定回调
+						end
+					}
+					
+					return buttonObj
+				end,
+				
+				CreateToggle = function(self, toggleSettings)
+					local toggle = ComponentFactory.createToggle(toggleSettings)
+					toggle.Frame.Parent = TabPage
+					
+					return toggle
+				end,
+				
+				CreateSlider = function(self, sliderSettings)
+					local slider = ComponentFactory.createSlider(sliderSettings)
+					slider.Frame.Parent = TabPage
+					
+					return slider
+				end,
+				
+				CreateSection = function(self, sectionName)
+					local theme = ThemeSystem:getCurrentTheme()
+					
+					local section = Instance.new("Frame")
+					section.Name = "Section_" .. sectionName
+					section.BackgroundTransparency = 1
+					section.Size = UDim2.new(1, 0, 0, 40)
+					
+					local title = Instance.new("TextLabel")
+					title.Text = sectionName
+					title.Font = Enum.Font.GothamSemibold
+					title.TextColor3 = theme.Primary
+					title.TextSize = 16
+					title.BackgroundTransparency = 1
+					title.Size = UDim2.new(1, 0, 1, 0)
+					title.TextXAlignment = Enum.TextXAlignment.Left
+					title.Parent = section
+					
+					local divider = Instance.new("Frame")
+					divider.Name = "Divider"
+					divider.BackgroundColor3 = theme.Border
+					divider.Size = UDim2.new(1, 0, 0, 1)
+					divider.Position = UDim2.new(0, 0, 1, -1)
+					divider.Parent = section
+					
+					section.Parent = TabPage
+					
+					return {
+						SetTitle = function(newTitle)
+							title.Text = newTitle
+						end
+					}
+				end,
+				
+				CreateLabel = function(self, labelText, icon)
+					local theme = ThemeSystem:getCurrentTheme()
+					
+					local label = Instance.new("Frame")
+					label.Name = "Label"
+					label.BackgroundColor3 = theme.SurfaceVariant
+					label.BackgroundTransparency = 0
+					label.Size = UDim2.new(1, -20, 0, 30)
+					
+					Utils.createRoundedCorners(label, 6)
+					
+					local textLabel = Instance.new("TextLabel")
+					textLabel.Text = labelText
+					textLabel.Font = Enum.Font.Gotham
+					textLabel.TextColor3 = theme.TextSecondary
+					textLabel.TextSize = 12
+					textLabel.BackgroundTransparency = 1
+					textLabel.Size = UDim2.new(1, icon and -40 or -20, 1, 0)
+					textLabel.Position = UDim2.new(0, icon and 35 : 10, 0, 0)
+					textLabel.TextXAlignment = Enum.TextXAlignment.Left
+					textLabel.Parent = label
+					
+					if icon then
+						local iconLabel = Instance.new("ImageLabel")
+						iconLabel.Image = Utils.getAssetUri(icon)
+						iconLabel.ImageColor3 = theme.Primary
+						iconLabel.Size = UDim2.new(0, 20, 0, 20)
+						iconLabel.Position = UDim2.new(0, 10, 0.5, -10)
+						iconLabel.BackgroundTransparency = 1
+						iconLabel.Parent = label
+					end
+					
+					label.Parent = TabPage
+					
+					return {
+						SetText = function(newText)
+							textLabel.Text = newText
+						end
+					}
+				end
+			}
+			
+			table.insert(self._tabs, TabObject)
+			
+			-- 如果是第一个标签，设置为活动状态
+			if tabId == 1 then
+				self._currentTab = 1
+				TabButton.BackgroundColor3 = ThemeSystem:getCurrentTheme().Primary
+				local content = TabButton:FindFirstChild("Content")
+				if content then
+					local title = content:FindFirstChild("Title")
+					if title then
+						title.TextColor3 = Color3.fromRGB(255, 255, 255)
+					end
+				end
+			end
+			
+			return TabObject
+		end
+	}
+	
+	-- 按钮交互
+	SearchButton.MouseButton1Click:Connect(function()
+		SearchBox.Visible = not SearchBox.Visible
+		
+		if SearchBox.Visible then
+			SearchInput:CaptureFocus()
+			AnimationManager:create(SearchBox,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				{BackgroundTransparency = 0}
+			)
+		else
+			AnimationManager:create(SearchBox,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				{BackgroundTransparency = 1}
+			)
+			task.wait(0.3)
+			SearchBox.Visible = false
+		end
+	end)
+	
+	MinimizeButton.MouseButton1Click:Connect(function()
+		if StateManager:get("debounce") then return end
+		
+		StateManager:setDebounce(true, 0.5)
+		Window._isMinimized = not Window._isMinimized
+		
+		if Window._isMinimized then
+			MinimizeButton.Image = Utils.getAssetUri("maximize-2")
+			AnimationManager:create(Window._main,
+				TweenInfo.new(0.5, Enum.EasingStyle.Quart),
+				{Size = UDim2.new(0, 500, 0, 50)}
+			)
+		else
+			MinimizeButton.Image = Utils.getAssetUri("minimize-2")
+			AnimationManager:create(Window._main,
+				TweenInfo.new(0.5, Enum.EasingStyle.Quart),
+				{Size = UDim2.new(0, 500, 0, 400)}
+			)
+		end
+		
+		StateManager:setDebounce(false)
+	end)
+	
+	CloseButton.MouseButton1Click:Connect(function()
+		Window:Hide()
+	end)
+	
+	-- 按钮悬停效果
+	local function setupButtonHover(button)
+		button.MouseEnter:Connect(function()
+			AnimationManager:create(button,
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				{ImageColor3 = ThemeSystem:getCurrentTheme().Primary}
+			)
+		end)
+		
+		button.MouseLeave:Connect(function()
+			if button.Name == "Close" then
+				AnimationManager:create(button,
+					TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+					{ImageColor3 = ThemeSystem:getCurrentTheme().Error}
+				)
+			else
+				AnimationManager:create(button,
+					TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+					{ImageColor3 = ThemeSystem:getCurrentTheme().TextSecondary}
+				)
+			end
+		end)
+	end
+	
+	setupButtonHover(SearchButton)
+	setupButtonHover(SettingsButton)
+	setupButtonHover(MinimizeButton)
+	setupButtonHover(CloseButton)
+	
+	-- 拖拽功能
+	local isDragging = false
+	local dragStart, mainStart
+	
+	Topbar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			isDragging = true
+			dragStart = input.Position
+			mainStart = Main.Position
+			
+			AnimationManager:create(Main,
+				TweenInfo.new(0.1, Enum.EasingStyle.Quad),
+				{Size = UDim2.new(0, 490, 0, Window._isMinimized and 48 or 398)}
+			)
+		end
+	end)
+	
+	UserInputService.InputChanged:Connect(function(input)
+		if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+			local delta = input.Position - dragStart
+			Main.Position = UDim2.new(mainStart.X.Scale, mainStart.X.Offset + delta.X,
+									  mainStart.Y.Scale, mainStart.Y.Offset + delta.Y)
+		end
+	end)
+	
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			isDragging = false
+			
+			AnimationManager:create(Main,
+				TweenInfo.new(0.1, Enum.EasingStyle.Quad),
+				{Size = UDim2.new(0, 500, 0, Window._isMinimized and 50 or 400)}
+			)
+		end
+	end)
+	
+	-- 加载动画
+	local function startLoadingAnimation()
+		Rayfield.Enabled = true
+		
+		-- 旋转动画
+		local spinAnimation = game:GetService("RunService").RenderStepped:Connect(function(deltaTime)
+			LoadingSpinner.Rotation = LoadingSpinner.Rotation + (deltaTime * 360)
+		end)
+		
+		-- 显示窗口
+		AnimationManager:createSequence({
+			{
+				instance = Main,
+				tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quart),
+				properties = {Size = UDim2.new(0, 500, 0, 400)}
+			},
+			{
+				instance = LoadingSpinner,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				properties = {ImageTransparency = 0}
+			},
+			{
+				instance = LoadingTitle,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 0}
+			},
+			{
+				instance = LoadingSubtitle,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 0}
+			}
+		}, 0.1)
+		
+		-- 等待加载
+		task.wait(1.5)
+		
+		-- 淡出加载界面
+		AnimationManager:createSequence({
+			{
+				instance = LoadingSubtitle,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 1}
+			},
+			{
+				instance = LoadingTitle,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				properties = {TextTransparency = 1}
+			},
+			{
+				instance = LoadingSpinner,
+				tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+				properties = {ImageTransparency = 1}
+			}
+		}, 0.1)
+		
+		-- 停止旋转动画
+		spinAnimation:Disconnect()
+		
+		-- 隐藏加载界面
+		task.wait(0.3)
+		LoadingFrame.Visible = false
+	end
+	
+	-- 开始加载动画
+	startLoadingAnimation()
+	
+	-- 添加快捷键
+	local hideHotkeyConnection = UserInputService.InputBegan:Connect(function(input, processed)
+		if not processed and input.KeyCode == Enum.KeyCode[windowSettings.ToggleKey or "RightControl"] then
+			Window:Toggle()
+		end
+	end)
+	
+	ConnectionManager:add(hideHotkeyConnection)
+	
+	-- 存储窗口引用
+	RayfieldLibrary.Windows[windowSettings.Name or "Default"] = Window
+	RayfieldLibrary._currentWindow = Window
+	
+	return Window
+end
+
+-- 添加更多组件工厂方法
+ComponentFactory.createDropdown = function(properties)
+	local theme = ThemeSystem:getCurrentTheme()
+	
+	local dropdownFrame = Instance.new("Frame")
+	dropdownFrame.Name = properties.Name or "Dropdown"
+	dropdownFrame.BackgroundColor3 = theme.Surface
+	dropdownFrame.BackgroundTransparency = 0
+	dropdownFrame.Size = UDim2.new(1, -20, 0, 40)
+	
+	Utils.createRoundedCorners(dropdownFrame, 8)
+	Utils.createStroke(dropdownFrame, theme.Border, 1)
+	
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Text = properties.Name or "下拉菜单"
+	title.Font = Enum.Font.GothamSemibold
+	title.TextColor3 = theme.TextPrimary
+	title.TextSize = 14
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(0.7, -10, 1, 0)
+	title.Position = UDim2.new(0, 10, 0, 0)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = dropdownFrame
+	
+	local selectedLabel = Instance.new("TextLabel")
+	selectedLabel.Name = "Selected"
+	selectedLabel.Text = properties.CurrentOption and properties.CurrentOption[1] or "选择..."
+	selectedLabel.Font = Enum.Font.Gotham
+	selectedLabel.TextColor3 = theme.TextSecondary
+	selectedLabel.TextSize = 12
+	selectedLabel.BackgroundTransparency = 1
+	selectedLabel.Size = UDim2.new(0.3, -10, 1, 0)
+	selectedLabel.Position = UDim2.new(0.7, 0, 0, 0)
+	selectedLabel.TextXAlignment = Enum.TextXAlignment.Right
+	selectedLabel.Parent = dropdownFrame
+	
+	local arrow = Instance.new("ImageLabel")
+	arrow.Name = "Arrow"
+	arrow.Image = Utils.getAssetUri("chevron-down")
+	arrow.ImageColor3 = theme.TextSecondary
+	arrow.Size = UDim2.new(0, 16, 0, 16)
+	arrow.Position = UDim2.new(1, -26, 0.5, -8)
+	arrow.BackgroundTransparency = 1
+	arrow.Parent = dropdownFrame
+	
+	local optionsFrame = Instance.new("Frame")
+	optionsFrame.Name = "Options"
+	optionsFrame.BackgroundColor3 = theme.Surface
+	optionsFrame.BackgroundTransparency = 0
+	optionsFrame.Size = UDim2.new(1, 0, 0, 0)
+	optionsFrame.Position = UDim2.new(0, 0, 1, 5)
+	optionsFrame.Visible = false
+	optionsFrame.ClipsDescendants = true
+	optionsFrame.Parent = dropdownFrame
+	
+	Utils.createRoundedCorners(optionsFrame, 8)
+	Utils.createStroke(optionsFrame, theme.Border, 1)
+	Utils.createShadow(optionsFrame, theme.Shadow, 0.5)
+	
+	local optionsList = Instance.new("UIListLayout")
+	optionsList.Name = "ListLayout"
+	optionsList.Padding = UDim.new(0, 2)
+	optionsList.Parent = optionsFrame
+	
+	local currentOption = properties.CurrentOption and properties.CurrentOption[1]
+	local isOpen = false
+	
+	local function updateDropdown()
+		selectedLabel.Text = currentOption or "选择..."
+		
+		if properties.Callback then
+			pcall(properties.Callback, currentOption)
+		end
+	end
+	
+	local function toggleDropdown()
+		isOpen = not isOpen
+		
+		if isOpen then
+			optionsFrame.Visible = true
+			local optionCount = #properties.Options
+			local optionHeight = 30
+			local padding = 10
+			local totalHeight = optionCount * optionHeight + (optionCount - 1) * 2 + padding * 2
+			
+			AnimationManager:createSequence({
+				{
+					instance = optionsFrame,
+					tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart),
+					properties = {Size = UDim2.new(1, 0, 0, totalHeight)}
+				},
+				{
+					instance = arrow,
+					tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart),
+					properties = {Rotation = 180}
+				}
+			})
+		else
+			AnimationManager:createSequence({
+				{
+					instance = arrow,
+					tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart),
+					properties = {Rotation = 0}
+				},
+				{
+					instance = optionsFrame,
+					tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart),
+					properties = {Size = UDim2.new(1, 0, 0, 0)}
+				}
+			})
+			
+			task.wait(0.3)
+			optionsFrame.Visible = false
+		end
+	end
+	
+	-- 创建选项
+	for _, option in ipairs(properties.Options or {}) do
+		local optionButton = Instance.new("TextButton")
+		optionButton.Name = "Option_" .. option
+		optionButton.Text = ""
+		optionButton.BackgroundColor3 = theme.SurfaceVariant
+		optionButton.BackgroundTransparency = 0
+		optionButton.Size = UDim2.new(1, -10, 0, 30)
+		optionButton.Position = UDim2.new(0, 5, 0, 0)
+		optionButton.Parent = optionsFrame
+		
+		Utils.createRoundedCorners(optionButton, 6)
+		
+		local optionText = Instance.new("TextLabel")
+		optionText.Text = option
+		optionText.Font = Enum.Font.Gotham
+		optionText.TextColor3 = theme.TextPrimary
+		optionText.TextSize = 12
+		optionText.BackgroundTransparency = 1
+		optionText.Size = UDim2.new(1, -10, 1, 0)
+		optionText.Position = UDim2.new(0, 5, 0, 0)
+		optionText.TextXAlignment = Enum.TextXAlignment.Left
+		optionText.Parent = optionButton
+		
+		optionButton.MouseButton1Click:Connect(function()
+			currentOption = option
+			updateDropdown()
+			toggleDropdown()
+		end)
+		
+		-- 悬停效果
+		optionButton.MouseEnter:Connect(function()
+			AnimationManager:create(optionButton,
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				{BackgroundColor3 = theme.SurfaceElevated}
+			)
+		end)
+		
+		optionButton.MouseLeave:Connect(function()
+			AnimationManager:create(optionButton,
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				{BackgroundColor3 = theme.SurfaceVariant}
+			)
+		end)
+	end
+	
+	-- 主交互
+	local interact = Instance.new("TextButton")
+	interact.Name = "Interact"
+	interact.Text = ""
+	interact.BackgroundTransparency = 1
+	interact.Size = UDim2.new(1, 0, 1, 0)
+	interact.Parent = dropdownFrame
+	
+	interact.MouseButton1Click:Connect(toggleDropdown)
+	
+	-- 悬停效果
+	dropdownFrame.MouseEnter:Connect(function()
+		AnimationManager:create(dropdownFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.SurfaceVariant}
+		)
+	end)
+	
+	dropdownFrame.MouseLeave:Connect(function()
+		AnimationManager:create(dropdownFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.Surface}
+		)
+	end)
+	
+	-- 点击外部关闭
+	local closeConnection = UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 and isOpen then
+			local mousePos = UserInputService:GetMouseLocation()
+			local absPos = dropdownFrame.AbsolutePosition
+			local absSize = dropdownFrame.AbsoluteSize
+			
+			-- 检查是否点击在外部
+			if mousePos.X < absPos.X or mousePos.X > absPos.X + absSize.X or
+			   mousePos.Y < absPos.Y or mousePos.Y > absPos.Y + absSize.Y + optionsFrame.AbsoluteSize.Y then
+				toggleDropdown()
+			end
+		end
+	end)
+	
+	ConnectionManager:add(closeConnection)
+	
+	return {
+		Frame = dropdownFrame,
+		Set = function(value)
+			if table.find(properties.Options, value) then
+				currentOption = value
+				updateDropdown()
+			end
+		end,
+		Get = function()
+			return currentOption
+		end
+	}
+end
+
+ComponentFactory.createInput = function(properties)
+	local theme = ThemeSystem:getCurrentTheme()
+	
+	local inputFrame = Instance.new("Frame")
+	inputFrame.Name = properties.Name or "Input"
+	inputFrame.BackgroundColor3 = theme.Surface
+	inputFrame.BackgroundTransparency = 0
+	inputFrame.Size = UDim2.new(1, -20, 0, 40)
+	
+	Utils.createRoundedCorners(inputFrame, 8)
+	Utils.createStroke(inputFrame, theme.Border, 1)
+	
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Text = properties.Name or "输入框"
+	title.Font = Enum.Font.GothamSemibold
+	title.TextColor3 = theme.TextPrimary
+	title.TextSize = 14
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(0.7, -10, 1, 0)
+	title.Position = UDim2.new(0, 10, 0, 0)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = inputFrame
+	
+	local inputBox = Instance.new("TextBox")
+	inputBox.Name = "InputBox"
+	inputBox.Text = properties.CurrentValue or ""
+	inputBox.PlaceholderText = properties.PlaceholderText or "输入..."
+	inputBox.Font = Enum.Font.Gotham
+	inputBox.TextColor3 = theme.TextPrimary
+	inputBox.PlaceholderColor3 = theme.TextSecondary
+	inputBox.TextSize = 12
+	inputBox.BackgroundColor3 = theme.InputBackground
+	inputBox.BackgroundTransparency = 0
+	inputBox.Size = UDim2.new(0.3, -10, 0, 24)
+	inputBox.Position = UDim2.new(0.7, 0, 0.5, -12)
+	inputBox.Parent = inputFrame
+	
+	Utils.createRoundedCorners(inputBox, 6)
+	Utils.createStroke(inputBox, theme.Border, 1)
+	
+	local currentValue = properties.CurrentValue or ""
+	
+	inputBox.FocusLost:Connect(function(enterPressed)
+		if enterPressed then
+			currentValue = inputBox.Text
+			
+			if properties.Callback then
+				pcall(properties.Callback, currentValue)
+			end
+		end
+	end)
+	
+	-- 悬停效果
+	inputFrame.MouseEnter:Connect(function()
+		AnimationManager:create(inputFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.SurfaceVariant}
+		)
+	end)
+	
+	inputFrame.MouseLeave:Connect(function()
+		AnimationManager:create(inputFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.Surface}
+		)
+	end)
+	
+	return {
+		Frame = inputFrame,
+		Set = function(value)
+			currentValue = value
+			inputBox.Text = value
+		end,
+		Get = function()
+			return currentValue
+		end
+	}
+end
+
+ComponentFactory.createKeybind = function(properties)
+	local theme = ThemeSystem:getCurrentTheme()
+	
+	local keybindFrame = Instance.new("Frame")
+	keybindFrame.Name = properties.Name or "Keybind"
+	keybindFrame.BackgroundColor3 = theme.Surface
+	keybindFrame.BackgroundTransparency = 0
+	keybindFrame.Size = UDim2.new(1, -20, 0, 40)
+	
+	Utils.createRoundedCorners(keybindFrame, 8)
+	Utils.createStroke(keybindFrame, theme.Border, 1)
+	
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Text = properties.Name or "按键绑定"
+	title.Font = Enum.Font.GothamSemibold
+	title.TextColor3 = theme.TextPrimary
+	title.TextSize = 14
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(0.7, -10, 1, 0)
+	title.Position = UDim2.new(0, 10, 0, 0)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = keybindFrame
+	
+	local keyButton = Instance.new("TextButton")
+	keyButton.Name = "KeyButton"
+	keyButton.Text = properties.CurrentKeybind or "无"
+	keyButton.Font = Enum.Font.Gotham
+	keyButton.TextColor3 = theme.TextPrimary
+	keyButton.TextSize = 12
+	keyButton.BackgroundColor3 = theme.SurfaceVariant
+	keyButton.BackgroundTransparency = 0
+	keyButton.Size = UDim2.new(0.3, -10, 0, 24)
+	keyButton.Position = UDim2.new(0.7, 0, 0.5, -12)
+	keyButton.Parent = keybindFrame
+	
+	Utils.createRoundedCorners(keyButton, 6)
+	Utils.createStroke(keyButton, theme.Border, 1)
+	
+	local currentKeybind = properties.CurrentKeybind
+	local isListening = false
+	
+	local function startListening()
+		isListening = true
+		keyButton.Text = "按任意键..."
+		keyButton.BackgroundColor3 = theme.Primary
+		keyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	end
+	
+	local function stopListening(newKey)
+		isListening = false
+		currentKeybind = newKey
+		keyButton.Text = newKey or "无"
+		keyButton.BackgroundColor3 = theme.SurfaceVariant
+		keyButton.TextColor3 = theme.TextPrimary
+		
+		if properties.Callback then
+			pcall(properties.Callback, newKey)
+		end
+	end
+	
+	keyButton.MouseButton1Click:Connect(function()
+		if not isListening then
+			startListening()
+		end
+	end)
+	
+	-- 按键监听
+	local keyConnection = UserInputService.InputBegan:Connect(function(input, processed)
+		if isListening and not processed then
+			if input.KeyCode ~= Enum.KeyCode.Unknown then
+				local keyName = input.KeyCode.Name
+				stopListening(keyName)
+			end
+		elseif not isListening and currentKeybind and input.KeyCode == Enum.KeyCode[currentKeybind] then
+			if properties.OnPress then
+				pcall(properties.OnPress)
+			end
+		end
+	end)
+	
+	ConnectionManager:add(keyConnection)
+	
+	-- 悬停效果
+	keybindFrame.MouseEnter:Connect(function()
+		AnimationManager:create(keybindFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.SurfaceVariant}
+		)
+	end)
+	
+	keybindFrame.MouseLeave:Connect(function()
+		AnimationManager:create(keybindFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.Surface}
+		)
+	end)
+	
+	keyButton.MouseEnter:Connect(function()
+		if not isListening then
+			AnimationManager:create(keyButton,
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				{BackgroundColor3 = theme.SurfaceElevated}
+			)
+		end
+	end)
+	
+	keyButton.MouseLeave:Connect(function()
+		if not isListening then
+			AnimationManager:create(keyButton,
+				TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+				{BackgroundColor3 = theme.SurfaceVariant}
+			)
+		end
+	end)
+	
+	return {
+		Frame = keybindFrame,
+		Set = function(key)
+			stopListening(key)
+		end,
+		Get = function()
+			return currentKeybind
+		end
+	}
+end
+
+-- 添加颜色选择器组件
+ComponentFactory.createColorPicker = function(properties)
+	local theme = ThemeSystem:getCurrentTheme()
+	
+	local colorPickerFrame = Instance.new("Frame")
+	colorPickerFrame.Name = properties.Name or "ColorPicker"
+	colorPickerFrame.BackgroundColor3 = theme.Surface
+	colorPickerFrame.BackgroundTransparency = 0
+	colorPickerFrame.Size = UDim2.new(1, -20, 0, 80)
+	
+	Utils.createRoundedCorners(colorPickerFrame, 8)
+	Utils.createStroke(colorPickerFrame, theme.Border, 1)
+	
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Text = properties.Name or "颜色选择器"
+	title.Font = Enum.Font.GothamSemibold
+	title.TextColor3 = theme.TextPrimary
+	title.TextSize = 14
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(0.7, -10, 0, 20)
+	title.Position = UDim2.new(0, 10, 0, 10)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = colorPickerFrame
+	
+	local colorPreview = Instance.new("Frame")
+	colorPreview.Name = "Preview"
+	colorPreview.BackgroundColor3 = properties.Color or Color3.fromRGB(255, 255, 255)
+	colorPreview.Size = UDim2.new(0, 40, 0, 40)
+	colorPreview.Position = UDim2.new(0.7, 0, 0, 10)
+	colorPreview.Parent = colorPickerFrame
+	
+	Utils.createRoundedCorners(colorPreview, 8)
+	Utils.createStroke(colorPreview, theme.Border, 1)
+	
+	local colorValue = properties.Color or Color3.fromRGB(255, 255, 255)
+	
+	local function updateColor(newColor)
+		colorValue = newColor
+		colorPreview.BackgroundColor3 = newColor
+		
+		if properties.Callback then
+			pcall(properties.Callback, newColor)
+		end
+	end
+	
+	-- 点击打开颜色选择器
+	colorPreview.MouseButton1Click:Connect(function()
+		-- 这里可以扩展为更完整的颜色选择器
+		-- 暂时使用简单的提示
+		RayfieldLibrary:Notify({
+			Title = "颜色选择器",
+			Content = "完整的颜色选择器功能待实现",
+			Duration = 3,
+			Image = "palette"
+		})
+	end)
+	
+	-- 悬停效果
+	colorPickerFrame.MouseEnter:Connect(function()
+		AnimationManager:create(colorPickerFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.SurfaceVariant}
+		)
+	end)
+	
+	colorPickerFrame.MouseLeave:Connect(function()
+		AnimationManager:create(colorPickerFrame,
+			TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+			{BackgroundColor3 = theme.Surface}
+		)
+	end)
+	
+	return {
+		Frame = colorPickerFrame,
+		Set = function(color)
+			updateColor(color)
+		end,
+		Get = function()
+			return colorValue
+		end
+	}
+end
+
+-- 添加标签页对象的方法
+local function addTabMethods(tabObject)
+	tabObject.CreateDropdown = function(self, dropdownSettings)
+		local dropdown = ComponentFactory.createDropdown(dropdownSettings)
+		dropdown.Frame.Parent = self._page
+		
+		return dropdown
+	end
+	
+	tabObject.CreateInput = function(self, inputSettings)
+		local input = ComponentFactory.createInput(inputSettings)
+		input.Frame.Parent = self._page
+		
+		return input
+	end
+	
+	tabObject.CreateKeybind = function(self, keybindSettings)
+		local keybind = ComponentFactory.createKeybind(keybindSettings)
+		keybind.Frame.Parent = self._page
+		
+		return keybind
+	end
+	
+	tabObject.CreateColorPicker = function(self, colorPickerSettings)
+		local colorPicker = ComponentFactory.createColorPicker(colorPickerSettings)
+		colorPicker.Frame.Parent = self._page
+		
+		return colorPicker
+	end
+end
+
+-- 导出库
+return setmetatable(RayfieldLibrary, {
+	__index = function(self, key)
+		if key == "CurrentWindow" then
+			return self._currentWindow
+		end
+		return rawget(self, key)
+	end
+})
