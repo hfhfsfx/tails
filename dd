@@ -524,45 +524,50 @@ local RayfieldLibrary = {
 		},
 
 		Bloom = {
-			TextColor = Color3.fromRGB(60, 40, 50),
+    -- 文字与基础
+    TextColor = Color3.fromRGB(240, 240, 240), -- 改为亮色文字，确保在深色背景上可读
+    Background = Color3.fromRGB(20, 15, 15),   -- 深黑红色基底
+    Topbar = Color3.fromRGB(35, 20, 20),       -- 更深的顶部栏
+    Shadow = Color3.fromRGB(10, 5, 5),         -- 近乎黑色的阴影
 
-			Background = Color3.fromRGB(255, 240, 245),
-			Topbar = Color3.fromRGB(250, 220, 225),
-			Shadow = Color3.fromRGB(230, 190, 195),
+    -- 通知
+    NotificationBackground = Color3.fromRGB(30, 20, 20),
+    NotificationActionsBackground = Color3.fromRGB(240, 225, 225),
 
-			NotificationBackground = Color3.fromRGB(255, 235, 240),
-			NotificationActionsBackground = Color3.fromRGB(245, 215, 225),
+    -- 标签页
+    TabBackground = Color3.fromRGB(45, 30, 30),
+    TabStroke = Color3.fromRGB(65, 40, 40),
+    TabBackgroundSelected = Color3.fromRGB(180, 40, 50), -- 选中状态用亮红突出
+    TabTextColor = Color3.fromRGB(200, 200, 200),
+    SelectedTabTextColor = Color3.fromRGB(255, 255, 255), -- 纯白，最大对比度
 
-			TabBackground = Color3.fromRGB(240, 210, 220),
-			TabStroke = Color3.fromRGB(230, 200, 210),
-			TabBackgroundSelected = Color3.fromRGB(255, 225, 235),
-			TabTextColor = Color3.fromRGB(80, 40, 60),
-			SelectedTabTextColor = Color3.fromRGB(50, 30, 50),
+    -- 元素
+    ElementBackground = Color3.fromRGB(35, 25, 25),
+    ElementBackgroundHover = Color3.fromRGB(50, 30, 30), -- 悬停时红色调更明显
+    SecondaryElementBackground = Color3.fromRGB(25, 20, 20),
+    ElementStroke = Color3.fromRGB(70, 45, 45),
+    SecondaryElementStroke = Color3.fromRGB(55, 35, 35),
 
-			ElementBackground = Color3.fromRGB(255, 235, 240),
-			ElementBackgroundHover = Color3.fromRGB(245, 220, 230),
-			SecondaryElementBackground = Color3.fromRGB(255, 235, 240), 
-			ElementStroke = Color3.fromRGB(230, 200, 210),
-			SecondaryElementStroke = Color3.fromRGB(230, 200, 210),
+    -- 滑块（核心红色）
+    SliderBackground = Color3.fromRGB(50, 30, 30),
+    SliderProgress = Color3.fromRGB(220, 50, 60),       -- 高饱和亮红
+    SliderStroke = Color3.fromRGB(240, 80, 90),         -- 更亮的红色边框
 
-			SliderBackground = Color3.fromRGB(240, 130, 160),
-			SliderProgress = Color3.fromRGB(250, 160, 180),
-			SliderStroke = Color3.fromRGB(255, 180, 200),
+    -- 开关（核心红色）
+    ToggleBackground = Color3.fromRGB(40, 25, 25),
+    ToggleEnabled = Color3.fromRGB(220, 50, 60),        -- 高饱和亮红
+    ToggleDisabled = Color3.fromRGB(80, 80, 80),
+    ToggleEnabledStroke = Color3.fromRGB(240, 70, 80),
+    ToggleDisabledStroke = Color3.fromRGB(120, 120, 120),
+    ToggleEnabledOuterStroke = Color3.fromRGB(100, 60, 65),
+    ToggleDisabledOuterStroke = Color3.fromRGB(70, 70, 70),
 
-			ToggleBackground = Color3.fromRGB(240, 210, 220),
-			ToggleEnabled = Color3.fromRGB(255, 140, 170),
-			ToggleDisabled = Color3.fromRGB(200, 180, 185),
-			ToggleEnabledStroke = Color3.fromRGB(250, 160, 190),
-			ToggleDisabledStroke = Color3.fromRGB(210, 180, 190),
-			ToggleEnabledOuterStroke = Color3.fromRGB(220, 160, 180),
-			ToggleDisabledOuterStroke = Color3.fromRGB(190, 170, 180),
-
-			DropdownSelected = Color3.fromRGB(250, 220, 225),
-			DropdownUnselected = Color3.fromRGB(240, 210, 220),
-
-			InputBackground = Color3.fromRGB(255, 235, 240),
-			InputStroke = Color3.fromRGB(220, 190, 200),
-			PlaceholderColor = Color3.fromRGB(170, 130, 140)
+    -- 下拉框与输入框
+    DropdownSelected = Color3.fromRGB(50, 30, 30),
+    DropdownUnselected = Color3.fromRGB(35, 25, 25),
+    InputBackground = Color3.fromRGB(30, 22, 22),
+    InputStroke = Color3.fromRGB(80, 50, 50),
+    PlaceholderColor = Color3.fromRGB(150, 130, 130)    -- 带红灰调的占位符
 		},
 
 		DarkBlue = {
