@@ -1641,7 +1641,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 	LoadingFrame.Subtitle.TextTransparency = 1
 
 	if Settings.ShowText then
-		MPrompt.Title.Text = 'Show '..Settings.ShowText
+		MPrompt.Title.Text = '显示 '..Settings.ShowText
 	end
 
 	LoadingFrame.Version.TextTransparency = 1
@@ -2144,7 +2144,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 					TweenService:Create(Button, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(85, 0, 0)}):Play()
 					TweenService:Create(Button.ElementIndicator, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {TextTransparency = 1}):Play()
 					TweenService:Create(Button.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-					Button.Title.Text = "Callback Error"
+					Button.Title.Text = "-_-"
 					print("Rayfield | "..ButtonSettings.Name.." Callback Error " ..tostring(Response))
 					warn('Check docs.sirius.menu for help with Rayfield specific development.')
 					task.wait(0.5)
@@ -2648,7 +2648,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 				if not Success then
 					TweenService:Create(Input, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(85, 0, 0)}):Play()
 					TweenService:Create(Input.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-					Input.Title.Text = "Callback Error"
+					Input.Title.Text = "-_-"
 					print("Rayfield | "..InputSettings.Name.." Callback Error " ..tostring(Response))
 					warn('Check docs.sirius.menu for help with Rayfield specific development.')
 					task.wait(0.5)
@@ -3099,7 +3099,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 						if not Success then
 							TweenService:Create(Keybind, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(85, 0, 0)}):Play()
 							TweenService:Create(Keybind.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-							Keybind.Title.Text = "Callback Error"
+							Keybind.Title.Text = "-_-"
 							print("Rayfield | "..KeybindSettings.Name.." Callback Error " ..tostring(Response))
 							warn('Check docs.sirius.menu for help with Rayfield specific development.')
 							task.wait(0.5)
@@ -3229,7 +3229,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 				if not Success then
 					TweenService:Create(Toggle, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(85, 0, 0)}):Play()
 					TweenService:Create(Toggle.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-					Toggle.Title.Text = "Callback Error"
+					Toggle.Title.Text = "-_-"
 					print("Rayfield | "..ToggleSettings.Name.." Callback Error " ..tostring(Response))
 					warn('Check docs.sirius.menu for help with Rayfield specific development.')
 					task.wait(0.5)
