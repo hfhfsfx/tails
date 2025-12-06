@@ -534,50 +534,50 @@ local RayfieldLibrary = {
 		},
 
 		Bloom = {
-    -- 文字与基础
-    TextColor = Color3.fromRGB(50, 45, 65),       -- 深灰紫色文字，保证对比度
-    Background = Color3.fromRGB(245, 240, 250),   -- 极浅的薰衣草紫底色
-    Topbar = Color3.fromRGB(235, 225, 245),       -- 稍深的顶部栏
-    Shadow = Color3.fromRGB(220, 210, 230),       -- 浅紫色阴影，增加层次
+-- 文字与基础
+TextColor = Color3.fromRGB(50, 45, 65),       -- 深灰紫色文字，保证对比度
+Background = Color3.fromRGB(245, 238, 252),   -- 微调：更明显的淡紫色底色
+Topbar = Color3.fromRGB(235, 222, 245),       -- 微调：紫色更明显
+Shadow = Color3.fromRGB(220, 205, 230),       -- 微调：紫色阴影
 
-    -- 通知
-    NotificationBackground = Color3.fromRGB(235, 228, 242),
-    NotificationActionsBackground = Color3.fromRGB(250, 245, 255),
+-- 通知
+NotificationBackground = Color3.fromRGB(235, 225, 242),  -- 微调：增加紫色
+NotificationActionsBackground = Color3.fromRGB(250, 242, 255),  -- 微调：更明显的淡紫色
 
-    -- 标签页
-    TabBackground = Color3.fromRGB(225, 215, 235),
-    TabStroke = Color3.fromRGB(205, 190, 220),
-    TabBackgroundSelected = Color3.fromRGB(180, 140, 220), -- 核心紫色：中等饱和
-    TabTextColor = Color3.fromRGB(80, 70, 100),
-    SelectedTabTextColor = Color3.fromRGB(255, 255, 255),   -- 白色，突出选中状态
+-- 标签页
+TabBackground = Color3.fromRGB(225, 212, 238),  -- 微调：紫色增强
+TabStroke = Color3.fromRGB(205, 185, 220),      -- 微调：边框更紫
+TabBackgroundSelected = Color3.fromRGB(180, 140, 220), -- 核心紫色：中等饱和
+TabTextColor = Color3.fromRGB(80, 70, 100),
+SelectedTabTextColor = Color3.fromRGB(255, 255, 255),   -- 白色，突出选中状态
 
-    -- 元素
-    ElementBackground = Color3.fromRGB(235, 228, 242),
-    ElementBackgroundHover = Color3.fromRGB(225, 215, 240), -- 悬停时紫色更明显
-    SecondaryElementBackground = Color3.fromRGB(225, 218, 235),
-    ElementStroke = Color3.fromRGB(210, 200, 225),
-    SecondaryElementStroke = Color3.fromRGB(200, 190, 215),
+-- 元素
+ElementBackground = Color3.fromRGB(235, 225, 242),      -- 微调：紫色增强
+ElementBackgroundHover = Color3.fromRGB(225, 212, 242), -- 微调：悬停时紫色更明显
+SecondaryElementBackground = Color3.fromRGB(225, 215, 238),  -- 微调：增加紫色
+ElementStroke = Color3.fromRGB(210, 195, 225),          -- 微调：边框紫色增强
+SecondaryElementStroke = Color3.fromRGB(200, 185, 218),  -- 微调：紫色边框
 
-    -- 滑块（核心紫色）
-    SliderBackground = Color3.fromRGB(220, 210, 235),
-    SliderProgress = Color3.fromRGB(160, 100, 220),         -- 清新亮紫色
-    SliderStroke = Color3.fromRGB(180, 130, 230),           -- 亮紫色边框
+-- 滑块（核心紫色）
+SliderBackground = Color3.fromRGB(220, 205, 238),      -- 微调：紫色背景
+SliderProgress = Color3.fromRGB(160, 100, 220),        -- 清新亮紫色
+SliderStroke = Color3.fromRGB(180, 130, 230),          -- 亮紫色边框
 
-    -- 开关（核心紫色）
-    ToggleBackground = Color3.fromRGB(230, 222, 240),
-    ToggleEnabled = Color3.fromRGB(160, 100, 220),          -- 清新亮紫色
-    ToggleDisabled = Color3.fromRGB(190, 185, 205),
-    ToggleEnabledStroke = Color3.fromRGB(140, 90, 210),
-    ToggleDisabledStroke = Color3.fromRGB(160, 155, 180),
-    ToggleEnabledOuterStroke = Color3.fromRGB(130, 110, 180),
-    ToggleDisabledOuterStroke = Color3.fromRGB(150, 140, 170),
+-- 开关（核心紫色）
+ToggleBackground = Color3.fromRGB(230, 218, 242),      -- 微调：紫色增强
+ToggleEnabled = Color3.fromRGB(160, 100, 220),         -- 清新亮紫色
+ToggleDisabled = Color3.fromRGB(190, 180, 208),        -- 微调：更紫的灰色
+ToggleEnabledStroke = Color3.fromRGB(140, 90, 210),
+ToggleDisabledStroke = Color3.fromRGB(160, 150, 183),  -- 微调：紫色灰色
+ToggleEnabledOuterStroke = Color3.fromRGB(130, 110, 180),
+ToggleDisabledOuterStroke = Color3.fromRGB(150, 135, 175),  -- 微调：紫色灰色
 
-    -- 下拉框与输入框
-    DropdownSelected = Color3.fromRGB(240, 232, 248),
-    DropdownUnselected = Color3.fromRGB(230, 222, 240),
-    InputBackground = Color3.fromRGB(245, 238, 252),
-    InputStroke = Color3.fromRGB(200, 190, 215),
-    PlaceholderColor = Color3.fromRGB(160, 150, 180)        -- 灰紫色占位符
+-- 下拉框与输入框
+DropdownSelected = Color3.fromRGB(240, 228, 250),      -- 微调：紫色增强
+DropdownUnselected = Color3.fromRGB(230, 218, 242),    -- 微调：紫色增强
+InputBackground = Color3.fromRGB(245, 235, 252),       -- 微调：更紫的淡紫色
+InputStroke = Color3.fromRGB(200, 185, 220),           -- 微调：紫色边框增强
+PlaceholderColor = Color3.fromRGB(160, 150, 180)       -- 灰紫色占位符
 		},
 
 		DarkBlue = {
