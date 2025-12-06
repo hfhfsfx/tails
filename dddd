@@ -1649,7 +1649,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 	LoadingFrame.Subtitle.Text = Settings.LoadingSubtitle or "Interface Suite"
 
 	if Settings.LoadingTitle ~= "Rayfield Interface Suite" then
-		LoadingFrame.Version.Text = "Rayfield UI"
+		LoadingFrame.Version.Text = ""
 	end
 
 	if Settings.Icon and Settings.Icon ~= 0 and Topbar:FindFirstChild('Icon') then
@@ -2888,7 +2888,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 						if not Success then
 							TweenService:Create(Dropdown, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(85, 0, 0)}):Play()
 							TweenService:Create(Dropdown.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-							Dropdown.Title.Text = "Callback Error"
+							Dropdown.Title.Text = "-_-"
 							print("Rayfield | "..DropdownSettings.Name.." Callback Error " ..tostring(Response))
 							warn('Check docs.sirius.menu for help with Rayfield specific development.')
 							task.wait(0.5)
@@ -3279,7 +3279,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 				if not Success then
 					TweenService:Create(Toggle, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(85, 0, 0)}):Play()
 					TweenService:Create(Toggle.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-					Toggle.Title.Text = "Callback Error"
+					Toggle.Title.Text = "-_-"
 					print("Rayfield | "..ToggleSettings.Name.." Callback Error " ..tostring(Response))
 					warn('Check docs.sirius.menu for help with Rayfield specific development.')
 					task.wait(0.5)
@@ -3462,7 +3462,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 				if not Success then
 					TweenService:Create(Slider, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(85, 0, 0)}):Play()
 					TweenService:Create(Slider.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-					Slider.Title.Text = "Callback Error"
+					Slider.Title.Text = "-_-"
 					print("Rayfield | "..SliderSettings.Name.." Callback Error " ..tostring(Response))
 					warn('Check docs.sirius.menu for help with Rayfield specific development.')
 					task.wait(0.5)
