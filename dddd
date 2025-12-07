@@ -1699,10 +1699,10 @@ function RayfieldLibrary:CreateWindow(Settings)
 			while true do
 				task.wait(math.random(180, 600))
 				RayfieldLibrary:Notify({
-					Title = "Rayfield Interface",
-					Content = "Enjoying this UI library? Find it at sirius.menu/discord",
+					Title = "❤️",
+					Content = "💔💔💔💔💔💔💔💔💔💔💔💔💔💔💔💔💔💔💔",
 					Duration = 7,
-					Image = 4370033185,
+					Image = 135443303437470,
 				})
 			end
 		end)
