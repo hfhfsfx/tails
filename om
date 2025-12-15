@@ -1,18 +1,67 @@
--- 自动朝向最近玩家脚本
+-- 自动朝向最近玩家脚本（鼠标右键切换版）
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 -- 配置
 local config = {
     enabled = false,  -- 默认关闭
-    toggleKey = "K",  -- 开关按键
+    toggleButton = Enum.UserInputType.MouseButton2,  -- 鼠标右键
     updateInterval = 0.1,  -- 更新间隔(秒)
-    maxDistance = 100000,  -- 最大检测距离
+    maxDistance = 10099,  -- 最大检测距离
     includeSelf = false,  -- 是否包括自己
     smoothRotation = true,  -- 平滑旋转
-    rotationSpeed = 9999  -- 旋转速度(仅当smoothRotation为true时生效)
+    rotationSpeed = 9999  -- 旋转速度
 }
+
+-- 显示状态提示
+local function showNotification(message, color)
+    print("[自动朝向] " .. message)
+    
+    -- 可选：在屏幕上显示提示
+    local ScreenGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoLookNotification")
+    if not ScreenGui then
+        ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "AutoLookNotification"
+        ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+    
+    -- 清除旧的通知
+    for _, child in ipairs(ScreenGui:GetChildren()) do
+        child:Destroy()
+    end
+    
+    -- 创建新通知
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 300, 0, 50)
+    Frame.Position = UDim2.new(0.5, -150, 0.05, 0)
+    Frame.BackgroundColor3 = color or Color3.fromRGB(30, 30, 30)
+    Frame.BackgroundTransparency = 0.3
+    Frame.BorderSizePixel = 0
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = Frame
+    
+    local TextLabel = Instance.new("TextLabel")
+    TextLabel.Text = message
+    TextLabel.Size = UDim2.new(1, 0, 1, 0)
+    TextLabel.BackgroundTransparency = 1
+    TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TextLabel.TextScaled = true
+    TextLabel.Font = Enum.Font.GothamBold
+    TextLabel.Parent = Frame
+    
+    Frame.Parent = ScreenGui
+    
+    -- 3秒后自动消失
+    task.delay(3, function()
+        if Frame and Frame.Parent then
+            Frame:Destroy()
+        end
+    end)
+end
 
 -- 获取最近玩家的函数
 local function getNearestPlayer()
@@ -90,7 +139,7 @@ local function startAutoLook()
         lookAtTarget()
     end)
     
-    print("[自动朝向] 已启用 - 朝向最近玩家")
+    showNotification("自动朝向已开启", Color3.fromRGB(0, 255, 0))
 end
 
 local function stopAutoLook()
@@ -99,22 +148,22 @@ local function stopAutoLook()
         connection = nil
     end
     
-    print("[自动朝向] 已禁用")
+    showNotification("自动朝向已关闭", Color3.fromRGB(255, 50, 50))
 end
 
--- 按键绑定
-local UserInputService = game:GetService("UserInputService")
-local keyConnection = nil
+-- 鼠标右键绑定
+local mouseButtonConnection = nil
 
-local function setupKeybind()
-    if keyConnection then
-        keyConnection:Disconnect()
+local function setupMouseButton()
+    if mouseButtonConnection then
+        mouseButtonConnection:Disconnect()
     end
     
-    keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    mouseButtonConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
         
-        if input.KeyCode == Enum.KeyCode[config.toggleKey:upper()] then
+        -- 检查是否是鼠标右键
+        if input.UserInputType == config.toggleButton then
             config.enabled = not config.enabled
             
             if config.enabled then
@@ -122,18 +171,24 @@ local function setupKeybind()
             else
                 stopAutoLook()
             end
+            
+            -- 防止右键默认行为（如视角旋转）
+            -- 可以根据需要注释掉下面这行
+            -- return Enum.ContextActionResult.Sink
         end
     end)
 end
 
--- 初始化
-setupKeybind()
+-- 初始化鼠标绑定
+setupMouseButton()
 
 -- 角色死亡时重置
 LocalPlayer.CharacterAdded:Connect(function(character)
+    -- 等待角色加载
+    task.wait(1)
+    
     -- 如果功能启用，重新启动
     if config.enabled then
-        task.wait(1) -- 等待角色加载
         if connection then
             connection:Disconnect()
             connection = nil
@@ -149,17 +204,17 @@ LocalPlayer.CharacterRemoving:Connect(function()
     end
 end)
 
--- 创建UI界面（可选）
-local function createUI()
+-- 创建常驻状态显示（可选）
+local function createStatusDisplay()
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "AutoLookUI"
+    ScreenGui.Name = "AutoLookStatus"
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 200, 0, 80)
-    Frame.Position = UDim2.new(0.02, 0, 0.02, 0)
+    Frame.Size = UDim2.new(0, 180, 0, 40)
+    Frame.Position = UDim2.new(0.02, 0, 0.95, -40)
     Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    Frame.BackgroundTransparency = 0.3
+    Frame.BackgroundTransparency = 0.5
     Frame.BorderSizePixel = 0
     Frame.Parent = ScreenGui
     
@@ -167,76 +222,53 @@ local function createUI()
     UICorner.CornerRadius = UDim.new(0, 8)
     UICorner.Parent = Frame
     
-    local Title = Instance.new("TextLabel")
-    Title.Text = "自动朝向控制"
-    Title.Size = UDim2.new(1, 0, 0, 30)
-    Title.Position = UDim2.new(0, 0, 0, 0)
-    Title.BackgroundTransparency = 1
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.TextScaled = true
-    Title.Font = Enum.Font.GothamBold
-    Title.Parent = Frame
+    local StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Name = "StatusLabel"
+    StatusLabel.Text = "自动朝向: 关闭"
+    StatusLabel.Size = UDim2.new(1, 0, 1, 0)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+    StatusLabel.TextScaled = true
+    StatusLabel.Font = Enum.Font.GothamBold
+    StatusLabel.TextStrokeTransparency = 0.5
+    StatusLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    StatusLabel.Parent = Frame
     
-    local Status = Instance.new("TextLabel")
-    Status.Name = "Status"
-    Status.Text = "状态: 关闭 (按K切换)"
-    Status.Size = UDim2.new(1, 0, 0, 25)
-    Status.Position = UDim2.new(0, 0, 0, 30)
-    Status.BackgroundTransparency = 1
-    Status.TextColor3 = Color3.fromRGB(200, 200, 200)
-    Status.TextScaled = true
-    Status.Font = Enum.Font.Gotham
-    Status.Parent = Frame
+    local HintLabel = Instance.new("TextLabel")
+    HintLabel.Text = "右键切换"
+    HintLabel.Size = UDim2.new(1, 0, 0, 15)
+    HintLabel.Position = UDim2.new(0, 0, 1, 0)
+    HintLabel.BackgroundTransparency = 1
+    HintLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    HintLabel.TextScaled = true
+    HintLabel.Font = Enum.Font.Gotham
+    HintLabel.Parent = Frame
     
-    local Distance = Instance.new("TextLabel")
-    Distance.Name = "Distance"
-    Distance.Text = "距离: --"
-    Distance.Size = UDim2.new(1, 0, 0, 25)
-    Distance.Position = UDim2.new(0, 0, 0, 55)
-    Distance.BackgroundTransparency = 1
-    Distance.TextColor3 = Color3.fromRGB(200, 200, 200)
-    Distance.TextScaled = true
-    Distance.Font = Enum.Font.Gotham
-    Distance.Parent = Frame
-    
-    -- 更新UI的函数
-    local function updateUI()
+    -- 更新状态显示
+    local function updateStatusDisplay()
         if config.enabled then
-            Status.Text = "状态: 开启 (按K切换)"
-            Status.TextColor3 = Color3.fromRGB(0, 255, 0)
+            StatusLabel.Text = "自动朝向: 开启"
+            StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
         else
-            Status.Text = "状态: 关闭 (按K切换)"
-            Status.TextColor3 = Color3.fromRGB(255, 50, 50)
-        end
-        
-        -- 显示最近玩家的距离
-        if config.enabled then
-            local _, distance = getNearestPlayer()
-            if distance and distance < config.maxDistance then
-                Distance.Text = string.format("距离: %.1f", distance)
-                Distance.TextColor3 = Color3.fromRGB(255, 165, 0)
-            else
-                Distance.Text = "距离: 无目标"
-                Distance.TextColor3 = Color3.fromRGB(150, 150, 150)
-            end
-        else
-            Distance.Text = "距离: --"
-            Distance.TextColor3 = Color3.fromRGB(150, 150, 150)
+            StatusLabel.Text = "自动朝向: 关闭"
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
         end
     end
     
-    -- 定期更新UI
+    -- 定期更新状态
     RunService.Heartbeat:Connect(function()
-        updateUI()
+        updateStatusDisplay()
     end)
     
     return ScreenGui
 end
 
--- 创建UI（如果需要）
--- createUI()
+-- 创建状态显示
+createStatusDisplay()
+
+-- 初始提示
+showNotification("自动朝向脚本已加载\n右键鼠标切换开关", Color3.fromRGB(255, 165, 0))
 
 print("[自动朝向] 脚本已加载")
-print("[自动朝向] 按 " .. config.toggleKey .. " 键切换开关")
+print("[自动朝向] 鼠标右键切换开关")
 print("[自动朝向] 当前状态: " .. (config.enabled and "开启" or "关闭"))
-
