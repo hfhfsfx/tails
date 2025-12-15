@@ -1,26 +1,67 @@
--- 自动朝向最近玩家脚本（修复版）
+-- 自动朝向最近玩家脚本（K键切换版）
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
-print("脚本加载完成")
-
 -- 配置
 local config = {
-    enabled = false,
-    toggleKey = "K",
-    updateInterval = 0.1,
-    maxDistance = 100,
-    includeSelf = false,
-    smoothRotation = true,
-    rotationSpeed = 5,
-    checkAlive = true, -- 只朝向存活的玩家
-    ignoreTeamMembers = false -- 忽略同队玩家（如果有团队系统）
+    enabled = false,  -- 默认关闭
+    toggleKey = "K",  -- K键切换
+    updateInterval = 0.1,  -- 更新间隔(秒)
+    maxDistance = 100,  -- 最大检测距离
+    includeSelf = false,  -- 是否包括自己
+    smoothRotation = true,  -- 平滑旋转
+    rotationSpeed = 5  -- 旋转速度
 }
 
-print("切换键设置为:", config.toggleKey)
-print("对应的 Enum.KeyCode:", Enum.KeyCode[config.toggleKey:upper()])
+-- 显示状态提示
+local function showNotification(message, color)
+    print("[自动朝向] " .. message)
+    
+    -- 在屏幕上显示提示
+    local ScreenGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoLookNotification")
+    if not ScreenGui then
+        ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "AutoLookNotification"
+        ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+    
+    -- 清除旧的通知
+    for _, child in ipairs(ScreenGui:GetChildren()) do
+        child:Destroy()
+    end
+    
+    -- 创建新通知
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 300, 0, 50)
+    Frame.Position = UDim2.new(0.5, -150, 0.05, 0)
+    Frame.BackgroundColor3 = color or Color3.fromRGB(30, 30, 30)
+    Frame.BackgroundTransparency = 0.3
+    Frame.BorderSizePixel = 0
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = Frame
+    
+    local TextLabel = Instance.new("TextLabel")
+    TextLabel.Text = message
+    TextLabel.Size = UDim2.new(1, 0, 1, 0)
+    TextLabel.BackgroundTransparency = 1
+    TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TextLabel.TextScaled = true
+    TextLabel.Font = Enum.Font.GothamBold
+    TextLabel.Parent = Frame
+    
+    Frame.Parent = ScreenGui
+    
+    -- 3秒后自动消失
+    task.delay(3, function()
+        if Frame and Frame.Parent then
+            Frame:Destroy()
+        end
+    end)
+end
 
 -- 获取最近玩家的函数
 local function getNearestPlayer()
@@ -30,41 +71,23 @@ local function getNearestPlayer()
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return nil end
     
-    local humanoid = character:FindFirstChild("Humanoid")
-    if config.checkAlive and humanoid and humanoid.Health <= 0 then
-        return nil -- 自己死亡时不寻找目标
-    end
-    
     local nearestPlayer = nil
     local nearestDistance = math.huge
     
     for _, player in ipairs(Players:GetPlayers()) do
-        -- 排除条件检查
-        if not config.includeSelf and player == LocalPlayer then
-            continue
-        end
-        
-        if config.ignoreTeamMembers then
-            if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
-                continue
-            end
-        end
-        
-        local targetCharacter = player.Character
-        if targetCharacter then
-            local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-            local targetHumanoid = targetCharacter:FindFirstChild("Humanoid")
-            
-            if targetRoot and targetHumanoid then
-                -- 检查目标是否存活
-                if config.checkAlive and targetHumanoid.Health <= 0 then
-                    continue
-                end
-                
-                local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
-                if distance < config.maxDistance and distance < nearestDistance then
-                    nearestDistance = distance
-                    nearestPlayer = player
+        -- 跳过自己（如果配置为不包括自己）
+        if config.includeSelf or player ~= LocalPlayer then
+            local targetCharacter = player.Character
+            if targetCharacter then
+                local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
+                    
+                    -- 检查距离是否在范围内
+                    if distance < config.maxDistance and distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestPlayer = player
+                    end
                 end
             end
         end
@@ -74,7 +97,7 @@ local function getNearestPlayer()
 end
 
 -- 朝向目标
-local function lookAtTarget(deltaTime)
+local function lookAtTarget()
     if not config.enabled then return end
     
     local character = LocalPlayer.Character
@@ -82,9 +105,6 @@ local function lookAtTarget(deltaTime)
     
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return end
-    
-    local humanoid = character:FindFirstChild("Humanoid")
-    if config.checkAlive and humanoid and humanoid.Health <= 0 then return end
     
     local nearestPlayer, distance = getNearestPlayer()
     if not nearestPlayer then return end
@@ -95,34 +115,31 @@ local function lookAtTarget(deltaTime)
     local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
     if not targetRoot then return end
     
+    -- 计算朝向
     local lookDirection = (targetRoot.Position - humanoidRootPart.Position).Unit
     
     if config.smoothRotation then
+        -- 平滑旋转
         local currentCFrame = humanoidRootPart.CFrame
         local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
-        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * deltaTime)
+        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
         humanoidRootPart.CFrame = newCFrame
     else
+        -- 直接朝向
         humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
     end
 end
 
 -- 主循环
 local connection = nil
-
 local function startAutoLook()
     if connection then return end
     
-    local lastTime = tick()
-    
     connection = RunService.Heartbeat:Connect(function(deltaTime)
-        if tick() - lastTime >= config.updateInterval then
-            lookAtTarget(deltaTime)
-            lastTime = tick()
-        end
+        lookAtTarget()
     end)
     
-    print("[自动朝向] 已启用 - 按 " .. config.toggleKey .. " 键切换")
+    showNotification("自动朝向已开启 (按K键关闭)", Color3.fromRGB(0, 255, 0))
 end
 
 local function stopAutoLook()
@@ -131,22 +148,22 @@ local function stopAutoLook()
         connection = nil
     end
     
-    print("[自动朝向] 已禁用")
+    showNotification("自动朝向已关闭 (按K键开启)", Color3.fromRGB(255, 50, 50))
 end
 
--- 修复的按键绑定（主要修复点）
-local isProcessingKey = false
+-- K键绑定
+local keyConnection = nil
 
-UserInputService.InputBegan:Connect(function(input)
-    -- 只处理键盘按键
-    if input.UserInputType == Enum.UserInputType.Keyboard then
-        -- 检查是否是切换键
+local function setupKeybind()
+    if keyConnection then
+        keyConnection:Disconnect()
+    end
+    
+    keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        
+        -- 检查是否是K键
         if input.KeyCode == Enum.KeyCode[config.toggleKey:upper()] then
-            -- 防止重复处理
-            if isProcessingKey then return end
-            isProcessingKey = true
-            
-            -- 切换状态
             config.enabled = not config.enabled
             
             if config.enabled then
@@ -154,32 +171,102 @@ UserInputService.InputBegan:Connect(function(input)
             else
                 stopAutoLook()
             end
-            
-            -- 短暂的防重复触发延迟
-            task.wait(0.2)
-            isProcessingKey = false
-        end
-    end
-end)
-
--- 角色死亡时重置
-local function onCharacterAdded(character)
-    local humanoid = character:WaitForChild("Humanoid")
-    humanoid.Died:Connect(function()
-        if config.enabled then
-            print("[自动朝向] 角色死亡，自动禁用")
-            config.enabled = false
-            stopAutoLook()
         end
     end)
 end
 
--- 初始化角色监听
-if LocalPlayer.Character then
-    onCharacterAdded(LocalPlayer.Character)
+-- 初始化按键绑定
+setupKeybind()
+
+-- 角色死亡时重置
+LocalPlayer.CharacterAdded:Connect(function(character)
+    -- 等待角色加载
+    task.wait(1)
+    
+    -- 如果功能启用，重新启动
+    if config.enabled then
+        if connection then
+            connection:Disconnect()
+            connection = nil
+        end
+        startAutoLook()
+    end
+end)
+
+LocalPlayer.CharacterRemoving:Connect(function()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end)
+
+-- 创建常驻状态显示
+local function createStatusDisplay()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "AutoLookStatus"
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 200, 0, 50)
+    Frame.Position = UDim2.new(0.02, 0, 0.95, -50)
+    Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Frame.BackgroundTransparency = 0.5
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = Frame
+    
+    local StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Name = "StatusLabel"
+    StatusLabel.Text = "自动朝向: 关闭"
+    StatusLabel.Size = UDim2.new(1, 0, 0.7, 0)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+    StatusLabel.TextScaled = true
+    StatusLabel.Font = Enum.Font.GothamBold
+    StatusLabel.TextStrokeTransparency = 0.5
+    StatusLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    StatusLabel.Parent = Frame
+    
+    local HintLabel = Instance.new("TextLabel")
+    HintLabel.Text = "K键切换"
+    HintLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    HintLabel.Position = UDim2.new(0, 0, 0.7, 0)
+    HintLabel.BackgroundTransparency = 1
+    HintLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    HintLabel.TextScaled = true
+    HintLabel.Font = Enum.Font.Gotham
+    HintLabel.Parent = Frame
+    
+    -- 更新状态显示
+    local function updateStatusDisplay()
+        if config.enabled then
+            StatusLabel.Text = "自动朝向: 开启"
+            StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+        else
+            StatusLabel.Text = "自动朝向: 关闭"
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+        end
+    end
+    
+    -- 定期更新状态
+    RunService.Heartbeat:Connect(function()
+        updateStatusDisplay()
+    end)
+    
+    return ScreenGui
 end
 
-LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+-- 创建状态显示
+createStatusDisplay()
 
-print("自动朝向脚本初始化完成")
-print("按 " .. config.toggleKey .. " 键开启/关闭自动朝向")
+-- 初始提示
+showNotification("自动朝向脚本已加载\n按K键切换开关", Color3.fromRGB(255, 165, 0))
+
+print("========================================")
+print("[自动朝向] 脚本已加载")
+print("[自动朝向] 按 K 键切换开关")
+print("[自动朝向] 当前状态: " .. (config.enabled and "开启" or "关闭"))
+print("========================================")
