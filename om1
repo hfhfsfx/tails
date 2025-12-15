@@ -1,4 +1,4 @@
--- 维度融合 - 自动锁定+强制走向目标（修复版）
+-- 维度融合 - 强制锁目标+朝目标走（彻底修复视角干扰）
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -9,31 +9,31 @@ local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local RootPart = Character:WaitForChild("HumanoidRootPart")
 
--- 核心开关+目标
-local isEnabled = false  -- 初始关闭
+-- 核心变量
+local isEnabled = false
 local targetPlayer = nil
 
 
 -- 1. 重生自动重绑（防失效）
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     Character = newChar
-    Humanoid = Character:WaitForChild("Humanoid")
-    RootPart = Character:WaitForChild("HumanoidRootPart")
+    Humanoid = newChar:WaitForChild("Humanoid")
+    RootPart = newChar:WaitForChild("HumanoidRootPart")
 end)
 
 
--- 2. K键开关（按K切开关）
+-- 2. K键开关（按K切状态）
 UIS.InputBegan:Connect(function(input, isGameProcessed)
     if isGameProcessed then return end
     if input.KeyCode == Enum.KeyCode.K then
         isEnabled = not isEnabled
-        print(isEnabled and "[维度融合] 自动锁定+走向开启" or "[维度融合] 自动锁定+走向关闭")
-        targetPlayer = isEnabled and findNearestPlayer() or nil -- 开启直接找目标，关闭清目标
+        print(isEnabled and "[维度融合] 强制锁定开启" or "[维度融合] 强制锁定关闭")
+        targetPlayer = isEnabled and findNearestPlayer() or nil
     end
 end)
 
 
--- 3. 找最近存活玩家（优先锁最近）
+-- 3. 找最近存活玩家（精准筛选）
 local function findNearestPlayer()
     local nearestDist = math.huge
     local nearest = nil
@@ -56,34 +56,28 @@ local function findNearestPlayer()
 end
 
 
--- 4. 核心修复：强制朝向+强制走向（每帧生效，不被打断）
+-- 4. 终极核心：强制朝目标转向+强制朝目标移动（无视视角）
 RunService.RenderStepped:Connect(function()
-    -- 开关关/角色没加载/死了 → 不执行
-    if not isEnabled or not RootPart or not Humanoid or Humanoid.Health <= 0 then
-        return
-    end
-
-    -- 实时更新最近目标（目标死了/消失就重找）
+    if not isEnabled or not RootPart or Humanoid.Health <= 0 then return end
     targetPlayer = findNearestPlayer()
     if not targetPlayer then return end
 
-    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local targetHumanoid = targetPlayer.Character:FindFirstChild("Humanoid")
+    local targetRoot = targetPlayer.Character.HumanoidRootPart
+    local targetHumanoid = targetPlayer.Character.Humanoid
     if not targetRoot or targetHumanoid.Health <= 0 then
         targetPlayer = nil
         return
     end
 
 
-    -- ✅ 强制朝向目标（水平转向，不抬头低头）
-    local lookDir = (targetRoot.Position - RootPart.Position).Unit
-    lookDir = Vector3.new(lookDir.X, 0, lookDir.Z) -- 锁定Y=0，只转左右
-    if lookDir.Magnitude > 0 then
-        RootPart.CFrame = CFrame.new(RootPart.Position, RootPart.Position + lookDir)
-    end
+    -- ✅ 彻底锁朝向（无视屏幕视角，硬面朝目标）
+    local targetPos = targetRoot.Position
+    targetPos = Vector3.new(targetPos.X, RootPart.Position.Y, targetPos.Z) -- 强制和自身Y轴对齐，只水平转
+    RootPart.CFrame = CFrame.lookAt(RootPart.Position, targetPos) -- 直接锁定朝向，不被视角干扰
 
 
-    -- ✅ 强制走向目标（修复核心！用MoveVector赋值，不被手动移动打断）
-    local moveDir = lookDir -- 移动方向=朝向方向
-    Humanoid:Move(moveDir, true) -- 第二个参数=true → 忽略玩家手动输入，强制移动
+    -- ✅ 强制朝目标移动（移动方向=角色面朝方向，不是屏幕方向）
+    local forwardDir = RootPart.CFrame.LookVector -- 角色正前方（不是屏幕前方！）
+    forwardDir = Vector3.new(forwardDir.X, 0, forwardDir.Z).Unit -- 只保留水平移动
+    Humanoid:Move(forwardDir, true) -- 强制移动，忽略手动输入
 end)
