@@ -1,0 +1,116 @@
+-- 自动朝向最近玩家脚本（简化版）
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+-- 配置
+local config = {
+    enabled = false,
+    toggleKey = "K",
+    updateInterval = 0.1,
+    maxDistance = 100,
+    includeSelf = false,
+    smoothRotation = true,
+    rotationSpeed = 5
+}
+
+-- 获取最近玩家的函数
+local function getNearestPlayer()
+    local character = LocalPlayer.Character
+    if not character then return nil end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil end
+    
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if config.includeSelf or player ~= LocalPlayer then
+            local targetCharacter = player.Character
+            if targetCharacter then
+                local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
+                    if distance < config.maxDistance and distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    
+    return nearestPlayer, nearestDistance
+end
+
+-- 朝向目标
+local function lookAtTarget()
+    if not config.enabled then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local nearestPlayer = getNearestPlayer()
+    if not nearestPlayer then return end
+    
+    local targetCharacter = nearestPlayer.Character
+    if not targetCharacter then return end
+    
+    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+    
+    local lookDirection = (targetRoot.Position - humanoidRootPart.Position).Unit
+    
+    if config.smoothRotation then
+        local currentCFrame = humanoidRootPart.CFrame
+        local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
+        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
+        humanoidRootPart.CFrame = newCFrame
+    else
+        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
+    end
+end
+
+-- 主循环
+local connection = nil
+
+local function startAutoLook()
+    if connection then return end
+    
+    connection = RunService.Heartbeat:Connect(function()
+        lookAtTarget()
+    end)
+    
+    print("[自动朝向] 已启用")
+end
+
+local function stopAutoLook()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+    
+    print("[自动朝向] 已禁用")
+end
+
+-- 按键绑定
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode[config.toggleKey:upper()] then
+        config.enabled = not config.enabled
+        
+        if config.enabled then
+            startAutoLook()
+        else
+            stopAutoLook()
+        end
+    end
+end)
+
+-- 角色死亡时
