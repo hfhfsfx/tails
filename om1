@@ -1,7 +1,8 @@
--- 维度融合 - 强制锁目标+朝目标走（彻底修复视角干扰）
+-- 维度融合 - 角色+镜头双锁定目标（屏幕+身体一起跟）
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera -- 屏幕镜头
 
 -- 动态适配玩家（换号直接用）
 local LocalPlayer = Players.LocalPlayer
@@ -12,23 +13,30 @@ local RootPart = Character:WaitForChild("HumanoidRootPart")
 -- 核心变量
 local isEnabled = false
 local targetPlayer = nil
+local cameraSmooth = 0.1 -- 镜头跟随顺滑度（越小越跟手，0.05~0.2最佳）
 
 
--- 1. 重生自动重绑（防失效）
+-- 1. 角色+镜头加载监听（重生自动续上）
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     Character = newChar
     Humanoid = newChar:WaitForChild("Humanoid")
     RootPart = newChar:WaitForChild("HumanoidRootPart")
+    Camera.CameraSubject = Humanoid -- 重置镜头目标
 end)
 
 
--- 2. K键开关（按K切状态）
+-- 2. K键开关（双锁同步开/关）
 UIS.InputBegan:Connect(function(input, isGameProcessed)
     if isGameProcessed then return end
     if input.KeyCode == Enum.KeyCode.K then
         isEnabled = not isEnabled
-        print(isEnabled and "[维度融合] 强制锁定开启" or "[维度融合] 强制锁定关闭")
+        print(isEnabled and "[维度融合] 双锁定开启（角色+屏幕）" or "[维度融合] 双锁定关闭")
         targetPlayer = isEnabled and findNearestPlayer() or nil
+        -- 关闭时解锁镜头，恢复正常视角
+        if not isEnabled then
+            Camera.CameraSubject = Humanoid
+            Humanoid.AutoRotate = true
+        end
     end
 end)
 
@@ -56,8 +64,8 @@ local function findNearestPlayer()
 end
 
 
--- 4. 终极核心：强制朝目标转向+强制朝目标移动（无视视角）
-RunService.RenderStepped:Connect(function()
+-- 4. 核心双锁逻辑（角色+屏幕同步跟目标）
+RunService.RenderStepped:Connect(function(deltaTime)
     if not isEnabled or not RootPart or Humanoid.Health <= 0 then return end
     targetPlayer = findNearestPlayer()
     if not targetPlayer then return end
@@ -66,18 +74,27 @@ RunService.RenderStepped:Connect(function()
     local targetHumanoid = targetPlayer.Character.Humanoid
     if not targetRoot or targetHumanoid.Health <= 0 then
         targetPlayer = nil
+        Camera.CameraSubject = Humanoid
         return
     end
 
 
-    -- ✅ 彻底锁朝向（无视屏幕视角，硬面朝目标）
-    local targetPos = targetRoot.Position
-    targetPos = Vector3.new(targetPos.X, RootPart.Position.Y, targetPos.Z) -- 强制和自身Y轴对齐，只水平转
-    RootPart.CFrame = CFrame.lookAt(RootPart.Position, targetPos) -- 直接锁定朝向，不被视角干扰
+    -- ✅ 1. 屏幕镜头锁目标（跟着目标转，不丢视野）
+    local cameraLookPos = Vector3.new(targetRoot.Position.X, targetRoot.Position.Y + 1, targetRoot.Position.Z) -- 镜头看目标胸口（不看脚）
+    -- 顺滑跟随（不卡顿）：当前镜头位置→目标位置 渐变
+    Camera.CFrame = Camera.CFrame:Lerp(
+        CFrame.lookAt(Camera.CFrame.Position, cameraLookPos), -- 镜头朝向目标
+        cameraSmooth -- 顺滑度（越小越快）
+    )
 
 
-    -- ✅ 强制朝目标移动（移动方向=角色面朝方向，不是屏幕方向）
-    local forwardDir = RootPart.CFrame.LookVector -- 角色正前方（不是屏幕前方！）
-    forwardDir = Vector3.new(forwardDir.X, 0, forwardDir.Z).Unit -- 只保留水平移动
+    -- ✅ 2. 角色身体锁朝向（和屏幕同步，面朝目标）
+    local charLookPos = Vector3.new(targetRoot.Position.X, RootPart.Position.Y, targetRoot.Position.Z) -- 角色水平朝目标
+    RootPart.CFrame = CFrame.lookAt(RootPart.Position, charLookPos)
+
+
+    -- ✅ 3. 强制朝目标移动（角色+镜头同步向前）
+    local forwardDir = RootPart.CFrame.LookVector.Unit -- 角色正前方（和镜头同步）
+    forwardDir = Vector3.new(forwardDir.X, 0, forwardDir.Z)
     Humanoid:Move(forwardDir, true) -- 强制移动，忽略手动输入
 end)
