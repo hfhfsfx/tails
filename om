@@ -1,0 +1,242 @@
+-- 自动朝向最近玩家脚本
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+
+-- 配置
+local config = {
+    enabled = false,  -- 默认关闭
+    toggleKey = "K",  -- 开关按键
+    updateInterval = 0.1,  -- 更新间隔(秒)
+    maxDistance = 100000,  -- 最大检测距离
+    includeSelf = false,  -- 是否包括自己
+    smoothRotation = true,  -- 平滑旋转
+    rotationSpeed = 9999  -- 旋转速度(仅当smoothRotation为true时生效)
+}
+
+-- 获取最近玩家的函数
+local function getNearestPlayer()
+    local character = LocalPlayer.Character
+    if not character then return nil end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil end
+    
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        -- 跳过自己（如果配置为不包括自己）
+        if config.includeSelf or player ~= LocalPlayer then
+            local targetCharacter = player.Character
+            if targetCharacter then
+                local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
+                    
+                    -- 检查距离是否在范围内
+                    if distance < config.maxDistance and distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    
+    return nearestPlayer, nearestDistance
+end
+
+-- 朝向目标
+local function lookAtTarget()
+    if not config.enabled then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local nearestPlayer, distance = getNearestPlayer()
+    if not nearestPlayer then return end
+    
+    local targetCharacter = nearestPlayer.Character
+    if not targetCharacter then return end
+    
+    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+    
+    -- 计算朝向
+    local lookDirection = (targetRoot.Position - humanoidRootPart.Position).Unit
+    
+    if config.smoothRotation then
+        -- 平滑旋转
+        local currentCFrame = humanoidRootPart.CFrame
+        local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
+        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
+        humanoidRootPart.CFrame = newCFrame
+    else
+        -- 直接朝向
+        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
+    end
+end
+
+-- 主循环
+local connection = nil
+local function startAutoLook()
+    if connection then return end
+    
+    connection = RunService.Heartbeat:Connect(function(deltaTime)
+        lookAtTarget()
+    end)
+    
+    print("[自动朝向] 已启用 - 朝向最近玩家")
+end
+
+local function stopAutoLook()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+    
+    print("[自动朝向] 已禁用")
+end
+
+-- 按键绑定
+local UserInputService = game:GetService("UserInputService")
+local keyConnection = nil
+
+local function setupKeybind()
+    if keyConnection then
+        keyConnection:Disconnect()
+    end
+    
+    keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        
+        if input.KeyCode == Enum.KeyCode[config.toggleKey:upper()] then
+            config.enabled = not config.enabled
+            
+            if config.enabled then
+                startAutoLook()
+            else
+                stopAutoLook()
+            end
+        end
+    end)
+end
+
+-- 初始化
+setupKeybind()
+
+-- 角色死亡时重置
+LocalPlayer.CharacterAdded:Connect(function(character)
+    -- 如果功能启用，重新启动
+    if config.enabled then
+        task.wait(1) -- 等待角色加载
+        if connection then
+            connection:Disconnect()
+            connection = nil
+        end
+        startAutoLook()
+    end
+end)
+
+LocalPlayer.CharacterRemoving:Connect(function()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end)
+
+-- 创建UI界面（可选）
+local function createUI()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "AutoLookUI"
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 200, 0, 80)
+    Frame.Position = UDim2.new(0.02, 0, 0.02, 0)
+    Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Frame.BackgroundTransparency = 0.3
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = Frame
+    
+    local Title = Instance.new("TextLabel")
+    Title.Text = "自动朝向控制"
+    Title.Size = UDim2.new(1, 0, 0, 30)
+    Title.Position = UDim2.new(0, 0, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextScaled = true
+    Title.Font = Enum.Font.GothamBold
+    Title.Parent = Frame
+    
+    local Status = Instance.new("TextLabel")
+    Status.Name = "Status"
+    Status.Text = "状态: 关闭 (按K切换)"
+    Status.Size = UDim2.new(1, 0, 0, 25)
+    Status.Position = UDim2.new(0, 0, 0, 30)
+    Status.BackgroundTransparency = 1
+    Status.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Status.TextScaled = true
+    Status.Font = Enum.Font.Gotham
+    Status.Parent = Frame
+    
+    local Distance = Instance.new("TextLabel")
+    Distance.Name = "Distance"
+    Distance.Text = "距离: --"
+    Distance.Size = UDim2.new(1, 0, 0, 25)
+    Distance.Position = UDim2.new(0, 0, 0, 55)
+    Distance.BackgroundTransparency = 1
+    Distance.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Distance.TextScaled = true
+    Distance.Font = Enum.Font.Gotham
+    Distance.Parent = Frame
+    
+    -- 更新UI的函数
+    local function updateUI()
+        if config.enabled then
+            Status.Text = "状态: 开启 (按K切换)"
+            Status.TextColor3 = Color3.fromRGB(0, 255, 0)
+        else
+            Status.Text = "状态: 关闭 (按K切换)"
+            Status.TextColor3 = Color3.fromRGB(255, 50, 50)
+        end
+        
+        -- 显示最近玩家的距离
+        if config.enabled then
+            local _, distance = getNearestPlayer()
+            if distance and distance < config.maxDistance then
+                Distance.Text = string.format("距离: %.1f", distance)
+                Distance.TextColor3 = Color3.fromRGB(255, 165, 0)
+            else
+                Distance.Text = "距离: 无目标"
+                Distance.TextColor3 = Color3.fromRGB(150, 150, 150)
+            end
+        else
+            Distance.Text = "距离: --"
+            Distance.TextColor3 = Color3.fromRGB(150, 150, 150)
+        end
+    end
+    
+    -- 定期更新UI
+    RunService.Heartbeat:Connect(function()
+        updateUI()
+    end)
+    
+    return ScreenGui
+end
+
+-- 创建UI（如果需要）
+-- createUI()
+
+print("[自动朝向] 脚本已加载")
+print("[自动朝向] 按 " .. config.toggleKey .. " 键切换开关")
+print("[自动朝向] 当前状态: " .. (config.enabled and "开启" or "关闭"))
+
