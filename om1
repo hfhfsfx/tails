@@ -1,4 +1,4 @@
--- 自动朝向最近玩家脚本（修复版）
+-- 自动朝向最近玩家脚本（K键开启，Z键关闭版）
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
@@ -6,22 +6,23 @@ local UserInputService = game:GetService("UserInputService")
 
 -- 配置
 local config = {
-    enabled = false,
-    toggleKey = "K",
-    updateInterval = 0.1,
-    maxDistance = 100,
-    includeSelf = false,
-    smoothRotation = true,
-    rotationSpeed = 5
+    enabled = false,  -- 默认关闭
+    enableKey = "K",  -- K键开启
+    disableKey = "Z", -- Z键关闭
+    updateInterval = 0.1,  -- 更新间隔(秒)
+    maxDistance = 100,  -- 最大检测距离
+    includeSelf = false,  -- 是否包括自己
+    smoothRotation = true,  -- 平滑旋转
+    rotationSpeed = 5  -- 旋转速度
 }
 
-print("[调试] 脚本开始加载...")
+print("[自动朝向] 脚本开始加载...")
 
 -- 显示状态提示
 local function showNotification(message, color)
-    print("[状态] " .. message)
+    print("[自动朝向] " .. message)
     
-    -- 可选：创建屏幕提示
+    -- 在屏幕上显示提示
     local success, err = pcall(function()
         local ScreenGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoLookNotification")
         if not ScreenGui then
@@ -30,15 +31,15 @@ local function showNotification(message, color)
             ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
         end
         
-        -- 清除旧通知
+        -- 清除旧的通知
         for _, child in ipairs(ScreenGui:GetChildren()) do
             child:Destroy()
         end
         
         -- 创建新通知
         local Frame = Instance.new("Frame")
-        Frame.Size = UDim2.new(0, 300, 0, 50)
-        Frame.Position = UDim2.new(0.5, -150, 0.05, 0)
+        Frame.Size = UDim2.new(0, 350, 0, 60)
+        Frame.Position = UDim2.new(0.5, -175, 0.05, 0)
         Frame.BackgroundColor3 = color or Color3.fromRGB(30, 30, 30)
         Frame.BackgroundTransparency = 0.3
         Frame.BorderSizePixel = 0
@@ -58,7 +59,7 @@ local function showNotification(message, color)
         
         Frame.Parent = ScreenGui
         
-        -- 3秒后消失
+        -- 3秒后自动消失
         task.delay(3, function()
             if Frame and Frame.Parent then
                 Frame:Destroy()
@@ -71,19 +72,13 @@ local function showNotification(message, color)
     end
 end
 
--- 获取最近玩家
+-- 获取最近玩家的函数
 local function getNearestPlayer()
     local character = LocalPlayer.Character
-    if not character then 
-        print("[调试] 无角色")
-        return nil 
-    end
+    if not character then return nil end
     
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then 
-        print("[调试] 无HumanoidRootPart")
-        return nil 
-    end
+    if not humanoidRootPart then return nil end
     
     local nearestPlayer = nil
     local nearestDistance = math.huge
@@ -142,83 +137,79 @@ end
 local connection = nil
 
 local function startAutoLook()
-    print("[调试] 尝试启动自动朝向...")
+    print("[自动朝向] 开启功能...")
     
+    -- 如果已经开启，先关闭
     if connection then
-        print("[调试] 连接已存在，先断开")
         connection:Disconnect()
         connection = nil
     end
+    
+    config.enabled = true
     
     connection = RunService.Heartbeat:Connect(function(deltaTime)
         lookAtTarget()
     end)
     
-    showNotification("自动朝向已开启 (按K关闭)", Color3.fromRGB(0, 255, 0))
-    print("[状态] 自动朝向已开启")
+    showNotification("自动朝向已开启\n按 Z 键关闭", Color3.fromRGB(0, 255, 0))
+    print("[自动朝向] 已开启 - 按Z键关闭")
 end
 
 local function stopAutoLook()
-    print("[调试] 尝试停止自动朝向...")
+    print("[自动朝向] 关闭功能...")
+    
+    config.enabled = false
     
     if connection then
         connection:Disconnect()
         connection = nil
-        print("[调试] 连接已断开")
-    else
-        print("[调试] 无活动连接")
     end
     
-    showNotification("自动朝向已关闭 (按K开启)", Color3.fromRGB(255, 50, 50))
-    print("[状态] 自动朝向已关闭")
+    showNotification("自动朝向已关闭\n按 K 键开启", Color3.fromRGB(255, 50, 50))
+    print("[自动朝向] 已关闭 - 按K键开启")
 end
 
--- 调试：手动测试函数
-local function testToggle()
-    print("[测试] 手动切换")
-    config.enabled = not config.enabled
-    print("[测试] 新状态:", config.enabled)
-    
-    if config.enabled then
-        startAutoLook()
-    else
-        stopAutoLook()
+-- 按键绑定
+local keyConnection = nil
+
+local function setupKeybind()
+    if keyConnection then
+        keyConnection:Disconnect()
     end
-end
-
--- 按键绑定（简化版）
-print("[调试] 设置按键绑定...")
-
-local keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    -- 调试输出
-    print("[按键] 按键检测:", input.KeyCode, "游戏处理:", gameProcessed)
     
-    -- 直接检测K键，不检查gameProcessed
-    if input.KeyCode == Enum.KeyCode.K then
-        print("[按键] K键被按下")
+    keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
         
-        -- 切换状态
-        config.enabled = not config.enabled
-        print("[状态切换] 新状态:", config.enabled)
-        
-        if config.enabled then
-            startAutoLook()
-        else
-            stopAutoLook()
+        -- K键开启
+        if input.KeyCode == Enum.KeyCode[config.enableKey:upper()] then
+            print("[按键] K键被按下 - 开启")
+            if not config.enabled then
+                startAutoLook()
+            else
+                print("[提示] 已开启，无需重复开启")
+            end
         end
         
-        -- 阻止默认行为（可选）
-        -- return Enum.ContextActionResult.Sink
-    end
-end)
+        -- Z键关闭
+        if input.KeyCode == Enum.KeyCode[config.disableKey:upper()] then
+            print("[按键] Z键被按下 - 关闭")
+            if config.enabled then
+                stopAutoLook()
+            else
+                print("[提示] 已关闭，无需重复关闭")
+            end
+        end
+    end)
+end
 
--- 角色事件
+-- 初始化按键绑定
+setupKeybind()
+
+-- 角色死亡时重置
 LocalPlayer.CharacterAdded:Connect(function(character)
-    print("[角色] 角色已添加")
     task.wait(1)
     
     if config.enabled then
-        print("[角色] 重新启动自动朝向")
         if connection then
             connection:Disconnect()
             connection = nil
@@ -228,40 +219,66 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 LocalPlayer.CharacterRemoving:Connect(function()
-    print("[角色] 角色移除中")
     if connection then
         connection:Disconnect()
         connection = nil
     end
 end)
 
--- 创建简单状态显示
-local function createSimpleStatus()
+-- 创建状态显示
+local function createStatusDisplay()
     local success, err = pcall(function()
         local ScreenGui = Instance.new("ScreenGui")
-        ScreenGui.Name = "SimpleAutoLookStatus"
+        ScreenGui.Name = "AutoLookStatus"
         ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
         
-        local TextLabel = Instance.new("TextLabel")
-        TextLabel.Name = "StatusText"
-        TextLabel.Text = "自动朝向: 关闭 (K键)"
-        TextLabel.Size = UDim2.new(0, 200, 0, 30)
-        TextLabel.Position = UDim2.new(0.02, 0, 0.02, 0)
-        TextLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        TextLabel.BackgroundTransparency = 0.5
-        TextLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        TextLabel.TextScaled = true
-        TextLabel.Font = Enum.Font.GothamBold
-        TextLabel.Parent = ScreenGui
+        local Frame = Instance.new("Frame")
+        Frame.Size = UDim2.new(0, 220, 0, 70)
+        Frame.Position = UDim2.new(0.02, 0, 0.02, 0)
+        Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        Frame.BackgroundTransparency = 0.5
+        Frame.BorderSizePixel = 0
         
-        -- 更新状态
+        local UICorner = Instance.new("UICorner")
+        UICorner.CornerRadius = UDim.new(0, 8)
+        UICorner.Parent = Frame
+        
+        -- 状态文本
+        local StatusLabel = Instance.new("TextLabel")
+        StatusLabel.Name = "StatusLabel"
+        StatusLabel.Text = "自动朝向: 关闭"
+        StatusLabel.Size = UDim2.new(1, 0, 0.5, 0)
+        StatusLabel.BackgroundTransparency = 1
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+        StatusLabel.TextScaled = true
+        StatusLabel.Font = Enum.Font.GothamBold
+        StatusLabel.TextStrokeTransparency = 0.5
+        StatusLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        StatusLabel.Parent = Frame
+        
+        -- 控制说明
+        local ControlLabel = Instance.new("TextLabel")
+        ControlLabel.Text = "K键开启 | Z键关闭"
+        ControlLabel.Size = UDim2.new(1, 0, 0.5, 0)
+        ControlLabel.Position = UDim2.new(0, 0, 0.5, 0)
+        ControlLabel.BackgroundTransparency = 1
+        ControlLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        ControlLabel.TextScaled = true
+        ControlLabel.Font = Enum.Font.Gotham
+        ControlLabel.Parent = Frame
+        
+        Frame.Parent = ScreenGui
+        
+        -- 更新状态显示
         RunService.Heartbeat:Connect(function()
             if config.enabled then
-                TextLabel.Text = "自动朝向: 开启 (K键)"
-                TextLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+                StatusLabel.Text = "自动朝向: 开启"
+                StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+                ControlLabel.Text = "按 Z 键关闭"
             else
-                TextLabel.Text = "自动朝向: 关闭 (K键)"
-                TextLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+                StatusLabel.Text = "自动朝向: 关闭"
+                StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+                ControlLabel.Text = "按 K 键开启"
             end
         end)
     end)
@@ -272,18 +289,27 @@ local function createSimpleStatus()
 end
 
 -- 初始化
-createSimpleStatus()
-showNotification("按K键切换自动朝向", Color3.fromRGB(255, 165, 0))
+createStatusDisplay()
+
+-- 初始提示
+showNotification("自动朝向脚本已加载\nK键开启 | Z键关闭", Color3.fromRGB(255, 165, 0))
 
 print("========================================")
 print("[自动朝向] 脚本加载完成")
-print("[提示] 按 K 键切换开关")
-print("[提示] 开启后角色会自动朝向最近玩家")
-print("[提示] 查看控制台输出了解详细状态")
+print("[控制] K键 - 开启自动朝向")
+print("[控制] Z键 - 关闭自动朝向")
+print("[状态] 当前: " .. (config.enabled and "开启" or "关闭"))
 print("========================================")
 
--- 测试命令（在控制台输入）
-print("[测试] 在控制台输入以下命令测试：")
-print("testToggle() - 手动切换开关")
-print("config.enabled = true; startAutoLook() - 强制开启")
-print("config.enabled = false; stopAutoLook() - 强制关闭")
+-- 调试函数
+local function debugInfo()
+    print("=== 调试信息 ===")
+    print("当前状态:", config.enabled)
+    print("连接状态:", connection and "已连接" or "未连接")
+    print("开启按键:", config.enableKey)
+    print("关闭按键:", config.disableKey)
+    print("================")
+end
+
+-- 导出调试函数（在控制台输入 debugInfo() 查看状态）
+_G.debugAutoLook = debugInfo
