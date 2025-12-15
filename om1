@@ -1,68 +1,102 @@
--- 自动朝向最近玩家（K键开关）- 适配Dimensional Coalescence
+-- 维度融合 - 自动锁定最近玩家脚本
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
+local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
--- 动态获取本地玩家+角色（换号也能用，无需改代码）
+-- 动态获取当前玩家（换号自动适配，无硬编码）
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 local Humanoid = Character:WaitForChild("Humanoid")
+local RootPart = Character:WaitForChild("HumanoidRootPart")
 
--- 开关状态+最近玩家缓存
-local isEnabled = false  -- 默认关闭
-local targetPlayer = nil
+-- 核心变量（开关+目标）
+local isEnabled = false  -- 初始关闭
+local targetPlayer = nil -- 当前锁定的目标
 
--- 角色重生时重新绑定部件（防止死了失效）
+
+-- 1. 角色加载监听（重生后自动重新绑定）
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     Character = newChar
-    HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
     Humanoid = Character:WaitForChild("Humanoid")
+    RootPart = Character:WaitForChild("HumanoidRootPart")
 end)
 
--- 按K键切换开关
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end  -- 忽略聊天/UI输入时按K
+
+-- 2. K键开关逻辑（按K切换开/关）
+UIS.InputBegan:Connect(function(input, isGameProcessed)
+    -- 只响应非输入框的K键按下
+    if isGameProcessed then return end
     if input.KeyCode == Enum.KeyCode.K then
-        isEnabled = not isEnabled  -- 切换开启/关闭
-        print("自动朝向功能：" .. (isEnabled and "已开启" or "已关闭"))  -- 控制台提示（可选删除）
+        isEnabled = not isEnabled -- 切换状态
+        print(isEnabled and "[维度融合] 自动锁定开启" or "[维度融合] 自动锁定关闭")
+        if not isEnabled then targetPlayer = nil end -- 关闭时清空目标
     end
 end)
 
--- 实时计算最近玩家+自动转向（每帧更新，流畅不卡顿）
+
+-- 3. 实时找最近的玩家（每帧检测）
+local function findNearestPlayer()
+    local nearestDist = math.huge -- 初始最大距离
+    local nearest = nil
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        -- 排除自己+玩家角色存在+玩家存活
+        if player ~= LocalPlayer 
+           and player.Character 
+           and player.Character:FindFirstChild("Humanoid") 
+           and player.Character.Humanoid.Health > 0 
+           and player.Character:FindFirstChild("HumanoidRootPart") then
+            
+            local targetRoot = player.Character.HumanoidRootPart
+            local dist = (RootPart.Position - targetRoot.Position).Magnitude -- 计算距离
+            
+            -- 更新最近目标
+            if dist < nearestDist then
+                nearestDist = dist
+                nearest = player
+            end
+        end
+    end
+    return nearest
+end
+
+
+-- 4. 自动朝向+自动走向目标（核心逻辑，每帧执行）
 RunService.RenderStepped:Connect(function()
-    -- 关闭状态/角色死亡/没根部件 → 不执行
-    if not isEnabled or Humanoid.Health <= 0 or not HumanoidRootPart then
+    -- 开关关闭/角色未加载/人形死亡 → 停止逻辑
+    if not isEnabled or not RootPart or Humanoid.Health <= 0 then
+        return
+    end
+
+    -- 找最近玩家（无目标时重新找，有目标判断是否存活）
+    targetPlayer = findNearestPlayer()
+    if not targetPlayer then return end
+
+    local targetCharacter = targetPlayer.Character
+    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+    local targetHumanoid = targetCharacter:FindFirstChild("Humanoid")
+
+    -- 目标死亡/消失 → 清空目标
+    if not targetRoot or targetHumanoid.Health <= 0 then
         targetPlayer = nil
         return
     end
 
-    local closestDistance = math.huge  -- 初始设为无限远
-    targetPlayer = nil
 
-    -- 遍历所有玩家，找最近的（排除自己）
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local targetChar = player.Character
-            local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-            local targetHumanoid = targetChar and targetChar:FindFirstChild("Humanoid")
-            
-            -- 目标必须存活+有根部件才生效
-            if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
-                local distance = (HumanoidRootPart.Position - targetRoot.Position).Magnitude
-                -- 更新最近玩家
-                if distance < closestDistance then
-                    closestDistance = distance
-                    targetPlayer = targetRoot
-                end
-            end
+    -- ✅ 自动朝向目标（始终面朝目标，不受自身移动影响）
+    local lookDir = (targetRoot.Position - RootPart.Position).Unit -- 朝向向量
+    lookDir = Vector3.new(lookDir.X, 0, lookDir.Z) -- 忽略Y轴（不抬头低头，只水平转向）
+    if lookDir.Magnitude > 0 then -- 防止向量为0报错
+        RootPart.CFrame = CFrame.new(RootPart.Position, RootPart.Position + lookDir)
+    end
+
+
+    -- ✅ 自动走向目标（持续往目标方向移动，不卡顿）
+    Humanoid:MoveTo(targetRoot.Position)
+    -- 目标移动时补全移动指令，避免断走
+    Humanoid.MoveToFinished:Connect(function(reached)
+        if isEnabled and targetPlayer and targetRoot then
+            Humanoid:MoveTo(targetRoot.Position)
         end
-    end
-
-    -- 有最近玩家 → 朝向目标（只转Y轴，不改变高度，不影响跳跃移动）
-    if targetPlayer then
-        local lookDirection = (targetPlayer.Position - HumanoidRootPart.Position).Unit
-        lookDirection = Vector3.new(lookDirection.X, 0, lookDirection.Z)  -- 锁定Y轴，防止抬头低头
-        HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position, HumanoidRootPart.Position + lookDirection)
-    end
+    end)
 end)
