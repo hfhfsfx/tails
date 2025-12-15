@@ -1,8 +1,10 @@
--- 自动朝向最近玩家脚本（简化版）
+-- 自动朝向最近玩家脚本（修复版）
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+
+print("脚本加载完成")
 
 -- 配置
 local config = {
@@ -12,8 +14,13 @@ local config = {
     maxDistance = 100,
     includeSelf = false,
     smoothRotation = true,
-    rotationSpeed = 5
+    rotationSpeed = 5,
+    checkAlive = true, -- 只朝向存活的玩家
+    ignoreTeamMembers = false -- 忽略同队玩家（如果有团队系统）
 }
+
+print("切换键设置为:", config.toggleKey)
+print("对应的 Enum.KeyCode:", Enum.KeyCode[config.toggleKey:upper()])
 
 -- 获取最近玩家的函数
 local function getNearestPlayer()
@@ -23,20 +30,41 @@ local function getNearestPlayer()
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return nil end
     
+    local humanoid = character:FindFirstChild("Humanoid")
+    if config.checkAlive and humanoid and humanoid.Health <= 0 then
+        return nil -- 自己死亡时不寻找目标
+    end
+    
     local nearestPlayer = nil
     local nearestDistance = math.huge
     
     for _, player in ipairs(Players:GetPlayers()) do
-        if config.includeSelf or player ~= LocalPlayer then
-            local targetCharacter = player.Character
-            if targetCharacter then
-                local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-                if targetRoot then
-                    local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
-                    if distance < config.maxDistance and distance < nearestDistance then
-                        nearestDistance = distance
-                        nearestPlayer = player
-                    end
+        -- 排除条件检查
+        if not config.includeSelf and player == LocalPlayer then
+            continue
+        end
+        
+        if config.ignoreTeamMembers then
+            if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+                continue
+            end
+        end
+        
+        local targetCharacter = player.Character
+        if targetCharacter then
+            local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+            local targetHumanoid = targetCharacter:FindFirstChild("Humanoid")
+            
+            if targetRoot and targetHumanoid then
+                -- 检查目标是否存活
+                if config.checkAlive and targetHumanoid.Health <= 0 then
+                    continue
+                end
+                
+                local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
+                if distance < config.maxDistance and distance < nearestDistance then
+                    nearestDistance = distance
+                    nearestPlayer = player
                 end
             end
         end
@@ -46,7 +74,7 @@ local function getNearestPlayer()
 end
 
 -- 朝向目标
-local function lookAtTarget()
+local function lookAtTarget(deltaTime)
     if not config.enabled then return end
     
     local character = LocalPlayer.Character
@@ -55,7 +83,10 @@ local function lookAtTarget()
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return end
     
-    local nearestPlayer = getNearestPlayer()
+    local humanoid = character:FindFirstChild("Humanoid")
+    if config.checkAlive and humanoid and humanoid.Health <= 0 then return end
+    
+    local nearestPlayer, distance = getNearestPlayer()
     if not nearestPlayer then return end
     
     local targetCharacter = nearestPlayer.Character
@@ -69,7 +100,7 @@ local function lookAtTarget()
     if config.smoothRotation then
         local currentCFrame = humanoidRootPart.CFrame
         local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
-        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
+        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * deltaTime)
         humanoidRootPart.CFrame = newCFrame
     else
         humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
@@ -82,11 +113,16 @@ local connection = nil
 local function startAutoLook()
     if connection then return end
     
-    connection = RunService.Heartbeat:Connect(function()
-        lookAtTarget()
+    local lastTime = tick()
+    
+    connection = RunService.Heartbeat:Connect(function(deltaTime)
+        if tick() - lastTime >= config.updateInterval then
+            lookAtTarget(deltaTime)
+            lastTime = tick()
+        end
     end)
     
-    print("[自动朝向] 已启用")
+    print("[自动朝向] 已启用 - 按 " .. config.toggleKey .. " 键切换")
 end
 
 local function stopAutoLook()
@@ -98,19 +134,52 @@ local function stopAutoLook()
     print("[自动朝向] 已禁用")
 end
 
--- 按键绑定
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode[config.toggleKey:upper()] then
-        config.enabled = not config.enabled
-        
-        if config.enabled then
-            startAutoLook()
-        else
-            stopAutoLook()
+-- 修复的按键绑定（主要修复点）
+local isProcessingKey = false
+
+UserInputService.InputBegan:Connect(function(input)
+    -- 只处理键盘按键
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        -- 检查是否是切换键
+        if input.KeyCode == Enum.KeyCode[config.toggleKey:upper()] then
+            -- 防止重复处理
+            if isProcessingKey then return end
+            isProcessingKey = true
+            
+            -- 切换状态
+            config.enabled = not config.enabled
+            
+            if config.enabled then
+                startAutoLook()
+            else
+                stopAutoLook()
+            end
+            
+            -- 短暂的防重复触发延迟
+            task.wait(0.2)
+            isProcessingKey = false
         end
     end
 end)
 
--- 角色死亡时
+-- 角色死亡时重置
+local function onCharacterAdded(character)
+    local humanoid = character:WaitForChild("Humanoid")
+    humanoid.Died:Connect(function()
+        if config.enabled then
+            print("[自动朝向] 角色死亡，自动禁用")
+            config.enabled = false
+            stopAutoLook()
+        end
+    end)
+end
+
+-- 初始化角色监听
+if LocalPlayer.Character then
+    onCharacterAdded(LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+
+print("自动朝向脚本初始化完成")
+print("按 " .. config.toggleKey .. " 键开启/关闭自动朝向")
