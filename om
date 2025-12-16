@@ -162,64 +162,77 @@ local function lookAtTarget()
     end
 end
 
--- 处理所有方向键输入 - 全部改为向前移动
-local movementActions = {}
+-- 跟踪按键状态
+local pressedKeys = {}
 local isMoving = false
-local lastDirection = Vector3.new(0, 0, 1)
 
-local function handleMovement(actionName, inputState, inputObject)
-    if not config.enabled or not config.alwaysForward then
-        return Enum.ContextActionResult.Pass  -- 不处理，让默认系统处理
-    end
+-- 检查是否在移动按键中
+local function isMovementKey(keyCode)
+    local movementKeys = {
+        Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
+        Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right
+    }
     
-    local character = LocalPlayer.Character
-    if not character then return Enum.ContextActionResult.Pass end
-    
-    local humanoid = character:FindFirstChild("Humanoid")
-    if not humanoid then return Enum.ContextActionResult.Pass end
-    
-    if inputState == Enum.UserInputState.Begin then
-        -- 按下任何方向键时开始移动
-        isMoving = true
-        
-        -- 获取角色的面朝方向
-        local lookDirection = getCharacterLookDirection()
-        lastDirection = lookDirection
-        
-        -- 向角色的面朝方向移动
-        humanoid:Move(lookDirection, true)
-        
-    elseif inputState == Enum.UserInputState.End then
-        -- 检查是否还有方向键被按住
-        local anyKeyPressed = false
-        local movementKeys = {Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D, 
-                              Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right}
-        
-        for _, keyCode in ipairs(movementKeys) do
-            if UserInputService:IsKeyDown(keyCode) then
-                anyKeyPressed = true
-                break
-            end
+    for _, movementKey in ipairs(movementKeys) do
+        if keyCode == movementKey then
+            return true
         end
-        
-        if not anyKeyPressed then
-            -- 所有方向键都释放了，停止移动
-            isMoving = false
-            humanoid:Move(Vector3.new(0, 0, 0), false)
-        end
-        
-    elseif inputState == Enum.UserInputState.Cancel then
-        -- 输入被取消，停止移动
-        isMoving = false
-        humanoid:Move(Vector3.new(0, 0, 0), false)
     end
-    
-    return Enum.ContextActionResult.Sink  -- 消耗输入，防止默认处理
+    return false
 end
 
--- 持续更新移动方向
-local function updateMovementDirection()
-    if not config.enabled or not config.alwaysForward or not isMoving then
+-- 检查是否有移动按键被按下
+local function anyMovementKeyPressed()
+    local movementKeys = {
+        Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
+        Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right
+    }
+    
+    for _, keyCode in ipairs(movementKeys) do
+        if pressedKeys[keyCode] then
+            return true
+        end
+    end
+    return false
+end
+
+-- 处理按键按下
+local function onInputBegan(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local keyCode = input.KeyCode
+        if isMovementKey(keyCode) then
+            pressedKeys[keyCode] = true
+            isMoving = true
+        end
+    end
+end
+
+-- 处理按键释放
+local function onInputEnded(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local keyCode = input.KeyCode
+        if isMovementKey(keyCode) then
+            pressedKeys[keyCode] = nil
+            
+            -- 检查是否还有移动按键被按下
+            if not anyMovementKeyPressed() then
+                isMoving = false
+            end
+        end
+    end
+end
+
+-- 持续移动
+local function updateMovement()
+    if not config.enabled or not config.alwaysForward then
+        return
+    end
+    
+    if not isMoving then
         return
     end
     
@@ -229,37 +242,11 @@ local function updateMovementDirection()
     local humanoid = character:FindFirstChild("Humanoid")
     if not humanoid then return end
     
-    -- 获取当前的面朝方向
+    -- 获取角色的面朝方向
     local lookDirection = getCharacterLookDirection()
     
-    -- 如果方向变化超过一定阈值，更新移动方向
-    if (lookDirection - lastDirection).Magnitude > 0.01 then
-        humanoid:Move(lookDirection, true)
-        lastDirection = lookDirection
-    end
-end
-
--- 绑定移动控制
-local function bindMovementControls()
-    -- 绑定所有可能的方向键
-    movementActions = {
-        ContextActionService:BindAction("MoveForward", handleMovement, false, 
-            Enum.KeyCode.W, Enum.KeyCode.Up),
-        ContextActionService:BindAction("MoveBackward", handleMovement, false, 
-            Enum.KeyCode.S, Enum.KeyCode.Down),
-        ContextActionService:BindAction("MoveLeft", handleMovement, false, 
-            Enum.KeyCode.A, Enum.KeyCode.Left),
-        ContextActionService:BindAction("MoveRight", handleMovement, false, 
-            Enum.KeyCode.D, Enum.KeyCode.Right)
-    }
-end
-
--- 解绑移动控制
-local function unbindMovementControls()
-    for _, actionName in ipairs({"MoveForward", "MoveBackward", "MoveLeft", "MoveRight"}) do
-        ContextActionService:UnbindAction(actionName)
-    end
-    movementActions = {}
+    -- 向前移动
+    humanoid:Move(lookDirection, true)
 end
 
 -- 主循环
@@ -274,17 +261,16 @@ local function startAutoLook()
         lookAtTarget()
     end)
     
-    -- 开启移动方向更新循环
+    -- 开启移动循环
     moveConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        updateMovementDirection()
+        updateMovement()
     end)
     
-    -- 如果启用了始终向前移动，绑定自定义移动控制
-    if config.alwaysForward then
-        bindMovementControls()
-    end
+    -- 绑定输入监听
+    UserInputService.InputBegan:Connect(onInputBegan)
+    UserInputService.InputEnded:Connect(onInputEnded)
     
-    showNotification("自动朝向已开启\n方向键将向面朝方向移动", Color3.fromRGB(0, 255, 0))
+    showNotification("自动朝向已开启\n按方向键向面朝方向移动", Color3.fromRGB(0, 255, 0))
 end
 
 local function stopAutoLook()
@@ -298,11 +284,13 @@ local function stopAutoLook()
         moveConnection = nil
     end
     
-    -- 解绑自定义移动控制
-    unbindMovementControls()
-    
     -- 停止移动
     isMoving = false
+    
+    -- 清除按键状态
+    pressedKeys = {}
+    
+    -- 确保角色停止移动
     local character = LocalPlayer.Character
     if character then
         local humanoid = character:FindFirstChild("Humanoid")
@@ -348,6 +336,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     
     -- 重置移动状态
     isMoving = false
+    pressedKeys = {}
     
     -- 如果功能启用，重新启动
     if config.enabled then
@@ -375,6 +364,7 @@ LocalPlayer.CharacterRemoving:Connect(function()
     
     -- 重置移动状态
     isMoving = false
+    pressedKeys = {}
 end)
 
 -- 创建常驻状态显示
@@ -428,7 +418,7 @@ local function createStatusDisplay()
         else
             StatusLabel.Text = "自动朝向: 关闭"
             StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-            MovementLabel.Text = "移动: 方向键 -> 向前"
+            MovementLabel.Text = "移动: 默认"
             MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
         end
     end
@@ -445,9 +435,14 @@ end
 createStatusDisplay()
 
 -- 初始提示
-showNotification("自动朝向脚本已加载\n右键鼠标切换开关\n开启时按任意方向键向面朝方向移动", Color3.fromRGB(255, 165, 0))
+showNotification("自动朝向脚本已加载\n右键鼠标切换开关\n开启时按方向键向面朝方向移动", Color3.fromRGB(255, 165, 0))
 
 print("[自动朝向] 脚本已加载")
 print("[自动朝向] 鼠标右键切换开关")
-print("[自动朝向] 开启时按任意方向键向面朝方向移动")
+print("[自动朝向] 开启时按方向键向面朝方向移动")
 print("[自动朝向] 当前状态: " .. (config.enabled and "开启" or "关闭"))
+
+-- 游戏关闭时清理
+game:BindToClose(function()
+    stopAutoLook()
+end)
