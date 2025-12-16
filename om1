@@ -1,9 +1,9 @@
--- 自动朝向最近玩家脚本（鼠标右键切换版）- 仅水平旋转，始终向面朝方向移动，屏幕跟随
+-- 自动朝向最近玩家脚本（鼠标右键切换版）- 完全锁定视角
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
+local Camera = workspace.CurrentCamera
 
 -- 配置
 local config = {
@@ -15,12 +15,12 @@ local config = {
     smoothRotation = true,  -- 平滑旋转
     rotationSpeed = 5,  -- 旋转速度
     alwaysForward = true,  -- 开启时所有方向键都向面朝方向移动
-    cameraFollow = true  -- 屏幕视角跟随角色朝向
+    lockCamera = true  -- 锁定摄像机视角
 }
 
 -- 显示状态提示
 local function showNotification(message, color)
-    print("[自动朝向] " .. message)
+    print("[自动锁定] " .. message)
     
     -- 可选：在屏幕上显示提示
     local ScreenGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoLookNotification")
@@ -99,115 +99,45 @@ local function getNearestPlayer()
     return nearestPlayer, nearestDistance
 end
 
--- 仅水平旋转：移除垂直方向
-local function getHorizontalLookDirection(startPos, targetPos)
-    -- 计算水平方向向量（忽略Y轴差异）
-    local horizontalDiff = Vector3.new(
-        targetPos.X - startPos.X,
-        0,  -- 将Y轴设为0，这样就不会有垂直方向的旋转
-        targetPos.Z - startPos.Z
-    )
+-- 获取目标位置（考虑头部或胸部）
+local function getTargetPosition(character)
+    -- 先尝试获取头部位置
+    local head = character:FindFirstChild("Head")
+    if head then
+        return head.Position
+    end
+    
+    -- 没有头部则获取上半身位置
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        return humanoidRootPart.Position + Vector3.new(0, 2, 0)  -- 假设角色高度约2米
+    end
+    
+    -- 如果都没有，返回角色位置
+    return character:GetPivot().Position
+end
+
+-- 计算从摄像机到目标的完整方向（包括垂直和水平）
+local function getFullLookDirection(startPos, targetPos)
+    local diff = targetPos - startPos
     
     -- 检查向量长度是否为0（避免除以0）
-    if horizontalDiff.Magnitude == 0 then
+    if diff.Magnitude == 0 then
         return Vector3.new(0, 0, 1)  -- 默认向前看
     end
     
-    return horizontalDiff.Unit
+    return diff.Unit
 end
 
--- 获取角色的面朝方向向量（仅水平）
-local function getCharacterLookDirection()
+-- 获取角色的面朝方向向量（完整，包括垂直）
+local function getCharacterFullLookDirection()
     local character = LocalPlayer.Character
     if not character then return Vector3.new(0, 0, 1) end
     
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return Vector3.new(0, 0, 1) end
     
-    local lookVector = humanoidRootPart.CFrame.LookVector
-    -- 只取水平方向
-    return Vector3.new(lookVector.X, 0, lookVector.Z).Unit
-end
-
--- 获取角色的旋转角度
-local function getCharacterRotation()
-    local character = LocalPlayer.Character
-    if not character then return 0 end
-    
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return 0 end
-    
-    local lookVector = humanoidRootPart.CFrame.LookVector
-    return math.atan2(-lookVector.X, -lookVector.Z) + math.pi
-end
-
--- 更新摄像机朝向
-local function updateCamera()
-    if not config.enabled or not config.cameraFollow then
-        return
-    end
-    
-    local character = LocalPlayer.Character
-    if not character then return end
-    
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return end
-    
-    -- 获取当前摄像机
-    local camera = Workspace.CurrentCamera
-    if not camera then return end
-    
-    -- 获取角色的朝向
-    local lookVector = humanoidRootPart.CFrame.LookVector
-    local horizontalLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
-    
-    -- 创建新的摄像机CFrame，使其朝向与角色一致
-    local cameraPosition = camera.CFrame.Position
-    local targetPosition = cameraPosition + horizontalLook
-    
-    -- 平滑更新摄像机方向
-    if config.smoothRotation then
-        local currentCFrame = camera.CFrame
-        local targetCFrame = CFrame.new(cameraPosition, targetPosition)
-        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
-        camera.CFrame = CFrame.new(cameraPosition, newCFrame.LookVector * 100 + cameraPosition)
-    else
-        camera.CFrame = CFrame.new(cameraPosition, targetPosition)
-    end
-end
-
--- 朝向目标（仅水平方向）
-local function lookAtTarget()
-    if not config.enabled then return end
-    
-    local character = LocalPlayer.Character
-    if not character then return end
-    
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return end
-    
-    local nearestPlayer, distance = getNearestPlayer()
-    if not nearestPlayer then return end
-    
-    local targetCharacter = nearestPlayer.Character
-    if not targetCharacter then return end
-    
-    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-    if not targetRoot then return end
-    
-    -- 计算仅水平方向的朝向
-    local lookDirection = getHorizontalLookDirection(humanoidRootPart.Position, targetRoot.Position)
-    
-    if config.smoothRotation then
-        -- 平滑旋转
-        local currentCFrame = humanoidRootPart.CFrame
-        local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
-        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
-        humanoidRootPart.CFrame = newCFrame
-    else
-        -- 直接朝向
-        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
-    end
+    return humanoidRootPart.CFrame.LookVector
 end
 
 -- 跟踪按键状态
@@ -244,9 +174,68 @@ local function anyMovementKeyPressed()
     return false
 end
 
+-- 完全锁定视角（角色朝向 + 摄像机视角）
+local function lockViewToTarget()
+    if not config.enabled then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local nearestPlayer, distance = getNearestPlayer()
+    if not nearestPlayer then return end
+    
+    local targetCharacter = nearestPlayer.Character
+    if not targetCharacter then return end
+    
+    local targetPos = getTargetPosition(targetCharacter)
+    
+    -- 1. 锁定角色朝向（仅水平）
+    local horizontalDiff = Vector3.new(
+        targetPos.X - humanoidRootPart.Position.X,
+        0,
+        targetPos.Z - humanoidRootPart.Position.Z
+    )
+    
+    if horizontalDiff.Magnitude > 0 then
+        local horizontalDirection = horizontalDiff.Unit
+        
+        if config.smoothRotation then
+            -- 平滑旋转角色
+            local currentCFrame = humanoidRootPart.CFrame
+            local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + horizontalDirection)
+            local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
+            humanoidRootPart.CFrame = newCFrame
+        else
+            -- 直接朝向
+            humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + horizontalDirection)
+        end
+    end
+    
+    -- 2. 锁定摄像机视角（完整方向，包括垂直）
+    if config.lockCamera and Camera then
+        local cameraPos = Camera.CFrame.Position
+        local cameraToTarget = getFullLookDirection(cameraPos, targetPos)
+        
+        -- 创建新的摄像机CFrame，完全看向目标
+        local newCameraCFrame = CFrame.new(cameraPos, cameraPos + cameraToTarget)
+        
+        if config.smoothRotation then
+            -- 平滑旋转摄像机
+            local currentCameraCFrame = Camera.CFrame
+            Camera.CFrame = currentCameraCFrame:Lerp(newCameraCFrame, config.rotationSpeed * config.updateInterval)
+        else
+            -- 直接设置摄像机
+            Camera.CFrame = newCameraCFrame
+        end
+    end
+end
+
 -- 处理按键按下
 local function onInputBegan(input, gameProcessed)
-    if gameProcessed then return end
+    if gameProcessed or not config.enabled or not config.alwaysForward then return end
     
     if input.UserInputType == Enum.UserInputType.Keyboard then
         local keyCode = input.KeyCode
@@ -269,6 +258,15 @@ local function onInputEnded(input, gameProcessed)
             -- 检查是否还有移动按键被按下
             if not anyMovementKeyPressed() then
                 isMoving = false
+                
+                -- 停止移动
+                local character = LocalPlayer.Character
+                if character then
+                    local humanoid = character:FindFirstChild("Humanoid")
+                    if humanoid then
+                        humanoid:Move(Vector3.new(0, 0, 0), false)
+                    end
+                end
             end
         end
     end
@@ -290,24 +288,30 @@ local function updateMovement()
     local humanoid = character:FindFirstChild("Humanoid")
     if not humanoid then return end
     
-    -- 获取角色的面朝方向
-    local lookDirection = getCharacterLookDirection()
+    -- 获取角色的面朝方向（水平）
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local lookVector = humanoidRootPart.CFrame.LookVector
+    local lookDirection = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
     
     -- 向前移动
     humanoid:Move(lookDirection, true)
 end
 
 -- 主循环
-local lookConnection = nil
+local lockConnection = nil
 local moveConnection = nil
-local cameraConnection = nil
 
 local function startAutoLook()
-    if lookConnection then return end
+    if lockConnection then return end
     
-    -- 开启自动朝向循环
-    lookConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        lookAtTarget()
+    -- 开启完全锁定循环（角色 + 摄像机）
+    lockConnection = RunService.Heartbeat:Connect(function(deltaTime)
+        lockViewToTarget()
     end)
     
     -- 开启移动循环
@@ -315,29 +319,29 @@ local function startAutoLook()
         updateMovement()
     end)
     
-    -- 开启摄像机跟随循环
-    if config.cameraFollow then
-        cameraConnection = RunService.Heartbeat:Connect(function(deltaTime)
-            updateCamera()
-        end)
-    end
-    
     -- 绑定输入监听
     UserInputService.InputBegan:Connect(onInputBegan)
     UserInputService.InputEnded:Connect(onInputEnded)
     
-    -- 暂时禁用鼠标控制视角（可选）
-    if config.cameraFollow then
-        LocalPlayer.CameraMode = Enum.CameraMode.LockFirstPerson
+    -- 禁用鼠标转动视角
+    if config.lockCamera then
+        local playerScripts = LocalPlayer:WaitForChild("PlayerScripts")
+        local playerModule = require(playerScripts:WaitForChild("PlayerModule"))
+        local controls = playerModule:GetControls()
+        
+        -- 禁用鼠标视角控制
+        if controls then
+            controls:Disable()
+        end
     end
     
-    showNotification("自动朝向已开启\n屏幕视角跟随角色朝向", Color3.fromRGB(0, 255, 0))
+    showNotification("视角完全锁定已开启\n摄像机强制锁定目标", Color3.fromRGB(0, 200, 255))
 end
 
 local function stopAutoLook()
-    if lookConnection then
-        lookConnection:Disconnect()
-        lookConnection = nil
+    if lockConnection then
+        lockConnection:Disconnect()
+        lockConnection = nil
     end
     
     if moveConnection then
@@ -345,19 +349,11 @@ local function stopAutoLook()
         moveConnection = nil
     end
     
-    if cameraConnection then
-        cameraConnection:Disconnect()
-        cameraConnection = nil
-    end
-    
     -- 停止移动
     isMoving = false
     
     -- 清除按键状态
     pressedKeys = {}
-    
-    -- 恢复摄像机控制
-    LocalPlayer.CameraMode = Enum.CameraMode.Classic
     
     -- 确保角色停止移动
     local character = LocalPlayer.Character
@@ -368,7 +364,19 @@ local function stopAutoLook()
         end
     end
     
-    showNotification("自动朝向已关闭\n恢复默认控制", Color3.fromRGB(255, 50, 50))
+    -- 恢复鼠标控制
+    if config.lockCamera then
+        local playerScripts = LocalPlayer:WaitForChild("PlayerScripts")
+        local playerModule = require(playerScripts:WaitForChild("PlayerModule"))
+        local controls = playerModule:GetControls()
+        
+        -- 启用鼠标视角控制
+        if controls then
+            controls:Enable()
+        end
+    end
+    
+    showNotification("视角锁定已关闭\n恢复自由视角", Color3.fromRGB(255, 50, 50))
 end
 
 -- 鼠标右键绑定
@@ -409,34 +417,26 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     
     -- 如果功能启用，重新启动
     if config.enabled then
-        if lookConnection then
-            lookConnection:Disconnect()
-            lookConnection = nil
+        if lockConnection then
+            lockConnection:Disconnect()
+            lockConnection = nil
         end
         if moveConnection then
             moveConnection:Disconnect()
             moveConnection = nil
-        end
-        if cameraConnection then
-            cameraConnection:Disconnect()
-            cameraConnection = nil
         end
         startAutoLook()
     end
 end)
 
 LocalPlayer.CharacterRemoving:Connect(function()
-    if lookConnection then
-        lookConnection:Disconnect()
-        lookConnection = nil
+    if lockConnection then
+        lockConnection:Disconnect()
+        lockConnection = nil
     end
     if moveConnection then
         moveConnection:Disconnect()
         moveConnection = nil
-    end
-    if cameraConnection then
-        cameraConnection:Disconnect()
-        cameraConnection = nil
     end
     
     -- 重置移动状态
@@ -451,7 +451,7 @@ local function createStatusDisplay()
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 240, 0, 70)
+    Frame.Size = UDim2.new(0, 250, 0, 70)
     Frame.Position = UDim2.new(0.02, 0, 0.95, -70)
     Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     Frame.BackgroundTransparency = 0.5
@@ -464,7 +464,7 @@ local function createStatusDisplay()
     
     local StatusLabel = Instance.new("TextLabel")
     StatusLabel.Name = "StatusLabel"
-    StatusLabel.Text = "自动朝向: 关闭"
+    StatusLabel.Text = "视角锁定: 关闭"
     StatusLabel.Size = UDim2.new(1, 0, 0.33, 0)
     StatusLabel.BackgroundTransparency = 1
     StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
@@ -474,44 +474,56 @@ local function createStatusDisplay()
     StatusLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     StatusLabel.Parent = Frame
     
-    local MovementLabel = Instance.new("TextLabel")
-    MovementLabel.Name = "MovementLabel"
-    MovementLabel.Text = "移动: 方向键 -> 向前"
-    MovementLabel.Size = UDim2.new(1, 0, 0.33, 0)
-    MovementLabel.Position = UDim2.new(0, 0, 0.33, 0)
-    MovementLabel.BackgroundTransparency = 1
-    MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
-    MovementLabel.TextScaled = true
-    MovementLabel.Font = Enum.Font.GothamMedium
-    MovementLabel.Parent = Frame
-    
     local CameraLabel = Instance.new("TextLabel")
     CameraLabel.Name = "CameraLabel"
-    CameraLabel.Text = "视角: 跟随"
+    CameraLabel.Text = "摄像机: 自由"
     CameraLabel.Size = UDim2.new(1, 0, 0.33, 0)
-    CameraLabel.Position = UDim2.new(0, 0, 0.66, 0)
+    CameraLabel.Position = UDim2.new(0, 0, 0.33, 0)
     CameraLabel.BackgroundTransparency = 1
     CameraLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
     CameraLabel.TextScaled = true
     CameraLabel.Font = Enum.Font.GothamMedium
     CameraLabel.Parent = Frame
     
+    local MovementLabel = Instance.new("TextLabel")
+    MovementLabel.Name = "MovementLabel"
+    MovementLabel.Text = "移动: 方向键 -> 向前"
+    MovementLabel.Size = UDim2.new(1, 0, 0.33, 0)
+    MovementLabel.Position = UDim2.new(0, 0, 0.66, 0)
+    MovementLabel.BackgroundTransparency = 1
+    MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+    MovementLabel.TextScaled = true
+    MovementLabel.Font = Enum.Font.GothamMedium
+    MovementLabel.Parent = Frame
+    
     -- 更新状态显示
     local function updateStatusDisplay()
         if config.enabled then
-            StatusLabel.Text = "自动朝向: 开启"
-            StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-            MovementLabel.Text = "移动: 方向键 -> 向前"
-            MovementLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-            CameraLabel.Text = "视角: 跟随"
-            CameraLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            StatusLabel.Text = "视角锁定: 开启"
+            StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+            
+            if config.lockCamera then
+                CameraLabel.Text = "摄像机: 锁定"
+                CameraLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
+            else
+                CameraLabel.Text = "摄像机: 自由"
+                CameraLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+            end
+            
+            if config.alwaysForward then
+                MovementLabel.Text = "移动: 方向键 -> 向前"
+                MovementLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            else
+                MovementLabel.Text = "移动: 默认"
+                MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+            end
         else
-            StatusLabel.Text = "自动朝向: 关闭"
+            StatusLabel.Text = "视角锁定: 关闭"
             StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+            CameraLabel.Text = "摄像机: 自由"
+            CameraLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
             MovementLabel.Text = "移动: 默认"
             MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
-            CameraLabel.Text = "视角: 默认"
-            CameraLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
         end
     end
     
@@ -527,12 +539,12 @@ end
 createStatusDisplay()
 
 -- 初始提示
-showNotification("自动朝向脚本已加载\n右键鼠标切换开关\n开启后屏幕视角跟随角色朝向", Color3.fromRGB(255, 165, 0))
+showNotification("完全视角锁定脚本已加载\n右键鼠标切换开关\n开启时摄像机强制锁定目标", Color3.fromRGB(0, 200, 255))
 
-print("[自动朝向] 脚本已加载")
-print("[自动朝向] 鼠标右键切换开关")
-print("[自动朝向] 开启后屏幕视角跟随角色朝向")
-print("[自动朝向] 当前状态: " .. (config.enabled and "开启" or "关闭"))
+print("[完全视角锁定] 脚本已加载")
+print("[完全视角锁定] 鼠标右键切换开关")
+print("[完全视角锁定] 开启时: 角色朝向锁定 + 摄像机视角锁定")
+print("[完全视角锁定] 当前状态: " .. (config.enabled and "开启" or "关闭"))
 
 -- 游戏关闭时清理
 game:BindToClose(function()
