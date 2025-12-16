@@ -1,106 +1,11 @@
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-
-local config = {
-    enabled = false,  -- 默认关闭
-    toggleButton = Enum.UserInputType.MouseButton2,  -- 鼠标右键
-    updateInterval = 0.1,  -- 更新间隔(秒)
-    maxDistance = 10099,  -- 最大检测距离
-    includeSelf = false,  -- 是否包括自己
-    smoothRotation = true,  -- 平滑旋转
-    rotationSpeed = 9999  -- 旋转速度
-}
-
-
-local function showNotification(message, color)
-    print("[自动朝向] " .. message)
-    
-    
-    local ScreenGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoLookNotification")
-    if not ScreenGui then
-        ScreenGui = Instance.new("ScreenGui")
-        ScreenGui.Name = "AutoLookNotification"
-        ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    end
-    
-    
-    for _, child in ipairs(ScreenGui:GetChildren()) do
-        child:Destroy()
-    end
-    
-    
-    local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 300, 0, 50)
-    Frame.Position = UDim2.new(0.5, -150, 0.05, 0)
-    Frame.BackgroundColor3 = color or Color3.fromRGB(30, 30, 30)
-    Frame.BackgroundTransparency = 0.3
-    Frame.BorderSizePixel = 0
-    
-    local UICorner = Instance.new("UICorner")
-    UICorner.CornerRadius = UDim.new(0, 8)
-    UICorner.Parent = Frame
-    
-    local TextLabel = Instance.new("TextLabel")
-    TextLabel.Text = message
-    TextLabel.Size = UDim2.new(1, 0, 1, 0)
-    TextLabel.BackgroundTransparency = 1
-    TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    TextLabel.TextScaled = true
-    TextLabel.Font = Enum.Font.GothamBold
-    TextLabel.Parent = Frame
-    
-    Frame.Parent = ScreenGui
-    
-    
-    task.delay(3, function()
-        if Frame and Frame.Parent then
-            Frame:Destroy()
-        end
-    end)
-end
-
-
-local function getNearestPlayer()
-    local character = LocalPlayer.Character
-    if not character then return nil end
-    
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return nil end
-    
-    local nearestPlayer = nil
-    local nearestDistance = math.huge
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        
-        if config.includeSelf or player ~= LocalPlayer then
-            local targetCharacter = player.Character
-            if targetCharacter then
-                local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-                if targetRoot then
-                    local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
-                    
-                    
-                    if distance < config.maxDistance and distance < nearestDistance then
-                        nearestDistance = distance
-                        nearestPlayer = player
-                    end
-                end
-            end
-        end
-    end
-    
-    return nearestPlayer, nearestDistance
-end
-
-
+-- 朝向目标（修正版）
 local function lookAtTarget()
     if not config.enabled then return end
     
     local character = LocalPlayer.Character
     if not character then return end
     
+    local humanoid = character:FindFirstChild("Humanoid")
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return end
     
@@ -113,160 +18,34 @@ local function lookAtTarget()
     local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
     if not targetRoot then return end
     
+    -- 方法1：使用Humanoid的MoveTo来间接控制朝向（最安全）
+    if humanoid then
+        local lookVector = (targetRoot.Position - humanoidRootPart.Position).Unit
+        humanoid:MoveTo(humanoidRootPart.Position + lookVector * 0.1)
+    end
     
-    local lookDirection = (targetRoot.Position - humanoidRootPart.Position).Unit
+    -- 方法2：只旋转Y轴，保持其他轴不变
+    local currentCFrame = humanoidRootPart.CFrame
+    local lookPosition = Vector3.new(targetRoot.Position.X, humanoidRootPart.Position.Y, targetRoot.Position.Z)
     
     if config.smoothRotation then
+        -- 平滑旋转Y轴
+        local currentLookVector = currentCFrame.LookVector
+        local targetLookVector = (lookPosition - humanoidRootPart.Position).Unit
         
-        local currentCFrame = humanoidRootPart.CFrame
-        local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
-        local newCFrame = currentCFrame:Lerp(targetCFrame, config.rotationSpeed * config.updateInterval)
-        humanoidRootPart.CFrame = newCFrame
+        -- 插值计算新的朝向
+        local newLookVector = currentLookVector:Lerp(targetLookVector, config.rotationSpeed * config.updateInterval)
+        
+        -- 只应用旋转，不改变位置
+        humanoidRootPart.CFrame = CFrame.new(
+            humanoidRootPart.Position,
+            humanoidRootPart.Position + Vector3.new(newLookVector.X, 0, newLookVector.Z)
+        )
     else
-        
-        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + lookDirection)
+        -- 直接朝向（只旋转Y轴）
+        humanoidRootPart.CFrame = CFrame.new(
+            humanoidRootPart.Position,
+            lookPosition
+        )
     end
 end
-
-
-local connection = nil
-local function startAutoLook()
-    if connection then return end
-    
-    connection = RunService.Heartbeat:Connect(function(deltaTime)
-        lookAtTarget()
-    end)
-    
-    showNotification("自动朝向已开启", Color3.fromRGB(0, 255, 0))
-end
-
-local function stopAutoLook()
-    if connection then
-        connection:Disconnect()
-        connection = nil
-    end
-    
-    showNotification("自动朝向已关闭", Color3.fromRGB(255, 50, 50))
-end
-
-
-local mouseButtonConnection = nil
-
-local function setupMouseButton()
-    if mouseButtonConnection then
-        mouseButtonConnection:Disconnect()
-    end
-    
-    mouseButtonConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        
-        
-        if input.UserInputType == config.toggleButton then
-            config.enabled = not config.enabled
-            
-            if config.enabled then
-                startAutoLook()
-            else
-                stopAutoLook()
-            end
-            
-            
-            
-            -- return Enum.ContextActionResult.Sink
-        end
-    end)
-end
-
-
-setupMouseButton()
-
-
-LocalPlayer.CharacterAdded:Connect(function(character)
-    
-    task.wait(0)
-    
-    
-    if config.enabled then
-        if connection then
-            connection:Disconnect()
-            connection = nil
-        end
-        startAutoLook()
-    end
-end)
-
-LocalPlayer.CharacterRemoving:Connect(function()
-    if connection then
-        connection:Disconnect()
-        connection = nil
-    end
-end)
-
-
-local function createStatusDisplay()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "AutoLookStatus"
-    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    
-    local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 180, 0, 40)
-    Frame.Position = UDim2.new(0.02, 0, 0.95, -40)
-    Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    Frame.BackgroundTransparency = 0.5
-    Frame.BorderSizePixel = 0
-    Frame.Parent = ScreenGui
-    
-    local UICorner = Instance.new("UICorner")
-    UICorner.CornerRadius = UDim.new(0, 8)
-    UICorner.Parent = Frame
-    
-    local StatusLabel = Instance.new("TextLabel")
-    StatusLabel.Name = "StatusLabel"
-    StatusLabel.Text = "自动朝向: 关闭"
-    StatusLabel.Size = UDim2.new(1, 0, 1, 0)
-    StatusLabel.BackgroundTransparency = 1
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-    StatusLabel.TextScaled = true
-    StatusLabel.Font = Enum.Font.GothamBold
-    StatusLabel.TextStrokeTransparency = 0.5
-    StatusLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    StatusLabel.Parent = Frame
-    
-    local HintLabel = Instance.new("TextLabel")
-    HintLabel.Text = "右键切换"
-    HintLabel.Size = UDim2.new(1, 0, 0, 15)
-    HintLabel.Position = UDim2.new(0, 0, 1, 0)
-    HintLabel.BackgroundTransparency = 1
-    HintLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    HintLabel.TextScaled = true
-    HintLabel.Font = Enum.Font.Gotham
-    HintLabel.Parent = Frame
-    
-    
-    local function updateStatusDisplay()
-        if config.enabled then
-            StatusLabel.Text = "自动朝向: 开启"
-            StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-        else
-            StatusLabel.Text = "自动朝向: 关闭"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        end
-    end
-    
-    
-    RunService.Heartbeat:Connect(function()
-        updateStatusDisplay()
-    end)
-    
-    return ScreenGui
-end
-
-
-createStatusDisplay()
-
-
-showNotification("自动朝向脚本已加载\n右键鼠标切换开关", Color3.fromRGB(255, 165, 0))
-
-print("[自动朝向] 脚本已加载")
-print("[自动朝向] 鼠标右键切换开关")
-print("[自动朝向] 当前状态: " .. (config.enabled and "开启" or "关闭"))
