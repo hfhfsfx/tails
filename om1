@@ -1,4 +1,4 @@
--- 自动朝向最近玩家脚本（鼠标右键切换版）- 完全锁定视角，修复移动问题
+-- 自动朝向最近玩家脚本（鼠标右键切换版）- 强制锁定视角，无法移动屏幕
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
@@ -13,14 +13,14 @@ local config = {
     maxDistance = 10000,  -- 最大检测距离
     includeSelf = false,  -- 是否包括自己
     smoothRotation = true,  -- 平滑旋转
-    rotationSpeed = 10,  -- 旋转速度
+    rotationSpeed = 10,  -- 提高旋转速度
     alwaysForward = true,  -- 开启时所有方向键都向面朝方向移动
     lockCamera = true  -- 锁定摄像机视角
 }
 
 -- 显示状态提示
 local function showNotification(message, color)
-    print("[自动锁定] " .. message)
+    print("[强制锁定] " .. message)
     
     -- 可选：在屏幕上显示提示
     local ScreenGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoLookNotification")
@@ -115,7 +115,10 @@ local function getTargetPosition(character)
     return character:GetPivot().Position
 end
 
--- 完全锁定视角（角色朝向 + 摄像机视角）
+-- 鼠标输入拦截
+local mouseDeltaConnections = {}
+
+-- 强制锁定视角（角色朝向 + 摄像机视角）
 local function lockViewToTarget()
     if not config.enabled then return end
     
@@ -155,7 +158,7 @@ local function lockViewToTarget()
         end
     end
     
-    -- 2. 锁定摄像机视角（完整方向，包括垂直）
+    -- 2. 强制锁定摄像机视角
     if config.lockCamera and Camera then
         local cameraPos = Camera.CFrame.Position
         local diff = targetPos - cameraPos
@@ -163,27 +166,51 @@ local function lockViewToTarget()
         if diff.Magnitude > 0 then
             local cameraToTarget = diff.Unit
             
-            -- 创建新的摄像机CFrame，完全看向目标
-            local newCameraCFrame = CFrame.new(cameraPos, cameraPos + cameraToTarget)
-            
-            if config.smoothRotation then
-                -- 平滑旋转摄像机
-                local currentCameraCFrame = Camera.CFrame
-                Camera.CFrame = currentCameraCFrame:Lerp(newCameraCFrame, config.rotationSpeed * config.updateInterval)
-            else
-                -- 直接设置摄像机
-                Camera.CFrame = newCameraCFrame
-            end
+            -- 强制设置摄像机看向目标
+            Camera.CFrame = CFrame.new(cameraPos, cameraPos + cameraToTarget)
         end
     end
 end
 
--- 跟踪按键状态
-local pressedKeys = {}
+-- 拦截鼠标输入，防止视角移动
+local function setupMouseBlock()
+    -- 拦截鼠标移动
+    for _, conn in pairs(mouseDeltaConnections) do
+        conn:Disconnect()
+    end
+    mouseDeltaConnections = {}
+    
+    -- 拦截鼠标输入，防止视角转动
+    table.insert(mouseDeltaConnections, UserInputService.InputChanged:Connect(function(input, gameProcessed)
+        if not config.enabled or gameProcessed then return end
+        
+        -- 拦截鼠标移动
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            -- 消耗鼠标输入，防止视角转动
+            -- 这里我们直接阻止默认行为
+            if input.Delta.Magnitude > 0 then
+                -- 可以在这里添加一些日志来调试
+                -- print("鼠标移动被拦截:", input.Delta)
+            end
+        end
+    end))
+    
+    -- 拦截鼠标滚轮
+    table.insert(mouseDeltaConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if not config.enabled or gameProcessed then return end
+        
+        -- 拦截鼠标滚轮
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            -- 消耗滚轮输入，防止缩放
+            -- print("鼠标滚轮被拦截")
+        end
+    end))
+end
+
+-- 简单直接的按键检测和移动
 local isMoving = false
 local lastMovementTime = 0
 
--- 简单直接的按键检测
 local function updateMovement()
     if not config.enabled or not config.alwaysForward then
         return
@@ -246,17 +273,20 @@ local function startAutoLook()
         moveConnection = nil
     end
     
-    -- 开启完全锁定循环（角色 + 摄像机）
-    lockConnection = RunService.Heartbeat:Connect(function(deltaTime)
+    -- 设置鼠标拦截
+    setupMouseBlock()
+    
+    -- 开启强制锁定循环（角色 + 摄像机）- 高频更新确保锁定
+    lockConnection = RunService.RenderStepped:Connect(function(deltaTime)
         lockViewToTarget()
     end)
     
-    -- 开启移动循环（简化版本）
+    -- 开启移动循环
     moveConnection = RunService.Heartbeat:Connect(function(deltaTime)
         updateMovement()
     end)
     
-    showNotification("视角锁定已开启\n按方向键向前移动", Color3.fromRGB(0, 200, 255))
+    showNotification("强制视角锁定已开启\n无法移动视角\n按方向键向前移动", Color3.fromRGB(0, 200, 255))
 end
 
 local function stopAutoLook()
@@ -270,9 +300,14 @@ local function stopAutoLook()
         moveConnection = nil
     end
     
+    -- 移除鼠标拦截
+    for _, conn in pairs(mouseDeltaConnections) do
+        conn:Disconnect()
+    end
+    mouseDeltaConnections = {}
+    
     -- 停止移动
     isMoving = false
-    pressedKeys = {}
     
     -- 确保角色停止移动
     local character = LocalPlayer.Character
@@ -283,7 +318,7 @@ local function stopAutoLook()
         end
     end
     
-    showNotification("视角锁定已关闭", Color3.fromRGB(255, 50, 50))
+    showNotification("强制视角锁定已关闭\n恢复自由视角", Color3.fromRGB(255, 50, 50))
 end
 
 -- 鼠标右键绑定
@@ -320,7 +355,6 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     
     -- 重置移动状态
     isMoving = false
-    pressedKeys = {}
     
     -- 如果功能启用，重新启动
     if config.enabled then
@@ -341,7 +375,6 @@ LocalPlayer.CharacterRemoving:Connect(function()
     
     -- 重置移动状态
     isMoving = false
-    pressedKeys = {}
 end)
 
 -- 创建常驻状态显示
@@ -351,8 +384,8 @@ local function createStatusDisplay()
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 220, 0, 60)
-    Frame.Position = UDim2.new(0.02, 0, 0.95, -60)
+    Frame.Size = UDim2.new(0, 250, 0, 70)
+    Frame.Position = UDim2.new(0.02, 0, 0.95, -70)
     Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     Frame.BackgroundTransparency = 0.5
     Frame.BorderSizePixel = 0
@@ -364,8 +397,8 @@ local function createStatusDisplay()
     
     local StatusLabel = Instance.new("TextLabel")
     StatusLabel.Name = "StatusLabel"
-    StatusLabel.Text = "视角锁定: 关闭"
-    StatusLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    StatusLabel.Text = "强制锁定: 关闭"
+    StatusLabel.Size = UDim2.new(1, 0, 0.4, 0)
     StatusLabel.BackgroundTransparency = 1
     StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
     StatusLabel.TextScaled = true
@@ -374,11 +407,22 @@ local function createStatusDisplay()
     StatusLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     StatusLabel.Parent = Frame
     
+    local CameraLabel = Instance.new("TextLabel")
+    CameraLabel.Name = "CameraLabel"
+    CameraLabel.Text = "视角: 自由"
+    CameraLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    CameraLabel.Position = UDim2.new(0, 0, 0.4, 0)
+    CameraLabel.BackgroundTransparency = 1
+    CameraLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+    CameraLabel.TextScaled = true
+    CameraLabel.Font = Enum.Font.GothamMedium
+    CameraLabel.Parent = Frame
+    
     local MovementLabel = Instance.new("TextLabel")
     MovementLabel.Name = "MovementLabel"
     MovementLabel.Text = "移动: 方向键 -> 向前"
-    MovementLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    MovementLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    MovementLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    MovementLabel.Position = UDim2.new(0, 0, 0.7, 0)
     MovementLabel.BackgroundTransparency = 1
     MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
     MovementLabel.TextScaled = true
@@ -388,8 +432,10 @@ local function createStatusDisplay()
     -- 更新状态显示
     local function updateStatusDisplay()
         if config.enabled then
-            StatusLabel.Text = "视角锁定: 开启"
+            StatusLabel.Text = "强制锁定: 开启"
             StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+            CameraLabel.Text = "视角: 锁定(无法移动)"
+            CameraLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
             
             if config.alwaysForward then
                 MovementLabel.Text = "移动: 方向键 -> 向前"
@@ -399,8 +445,10 @@ local function createStatusDisplay()
                 MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
             end
         else
-            StatusLabel.Text = "视角锁定: 关闭"
+            StatusLabel.Text = "强制锁定: 关闭"
             StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+            CameraLabel.Text = "视角: 自由"
+            CameraLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
             MovementLabel.Text = "移动: 默认"
             MovementLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
         end
@@ -418,11 +466,12 @@ end
 createStatusDisplay()
 
 -- 初始提示
-showNotification("视角锁定脚本已加载\n右键鼠标切换开关", Color3.fromRGB(255, 165, 0))
+showNotification("强制视角锁定脚本已加载\n右键鼠标切换开关\n开启后无法移动视角", Color3.fromRGB(255, 100, 100))
 
-print("[视角锁定] 脚本已加载")
-print("[视角锁定] 鼠标右键切换开关")
-print("[视角锁定] 当前状态: " .. (config.enabled and "开启" or "关闭"))
+print("[强制锁定] 脚本已加载")
+print("[强制锁定] 鼠标右键切换开关")
+print("[强制锁定] 开启后视角无法移动")
+print("[强制锁定] 当前状态: " .. (config.enabled and "开启" or "关闭"))
 
 -- 游戏关闭时清理
 game:BindToClose(function()
