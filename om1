@@ -10,10 +10,10 @@ local config = {
     enabled = false,  -- 默认关闭
     toggleButton = Enum.UserInputType.MouseButton2,  -- 鼠标右键
     updateInterval = 0.1,  -- 更新间隔(秒)
-    maxDistance = 100,  -- 最大检测距离
+    maxDistance = 10000,  -- 最大检测距离
     includeSelf = false,  -- 是否包括自己
     smoothRotation = true,  -- 平滑旋转
-    rotationSpeed = 5,  -- 旋转速度
+    rotationSpeed = 10,  -- 旋转速度
     alwaysForward = true,  -- 开启时所有方向键都向面朝方向移动
     lockCamera = true  -- 锁定摄像机视角
 }
