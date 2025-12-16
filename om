@@ -12,7 +12,7 @@ local config = {
     maxDistance = 1000,  -- 最大检测距离
     includeSelf = false,  -- 是否包括自己
     smoothRotation = true,  -- 平滑旋转
-    rotationSpeed = 5  -- 旋转速度
+    rotationSpeed = 10  -- 旋转速度
 }
 
 -- 显示状态提示
