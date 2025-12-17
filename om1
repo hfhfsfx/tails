@@ -197,7 +197,7 @@ local function setupSlider(sliderFrame, fillFrame, button, label, isRunSlider)
 			relativeX = math.clamp(relativeX, 0, 1)
 			
 			-- 计算速度值 (10到50之间)
-			local speedValue = math.floor(10 + relativeX * 40)
+			local speedValue = math.floor(0 + relativeX * 40)
 			
 			-- 更新UI
 			button.Position = UDim2.new(relativeX, -10, 0.5, -10)
