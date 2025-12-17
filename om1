@@ -10,7 +10,7 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
 
 -- ==== 速度变量（共享）====
-_G.WalkSpeed = 16      -- 使用全局变量或共享表
+_G.WalkSpeed = 14      -- 使用全局变量或共享表
 _G.RunSpeed = 26.5   
 _G.CurrentSpeed = _G.WalkSpeed
 local running = false
