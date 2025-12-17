@@ -9,13 +9,13 @@ local char = player.Character or player.CharacterAdded:Wait()
 local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
 
--- 速度设置
-local walkSpeed = 14      
-local runSpeed = 26.5   
-local currentSpeed = walkSpeed
+-- ==== 速度变量（共享）====
+_G.WalkSpeed = 16      -- 使用全局变量或共享表
+_G.RunSpeed = 26.5   
+_G.CurrentSpeed = _G.WalkSpeed
 local running = false
 
--- 创建GUI
+-- ==== 创建GUI ====
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "SpeedControlGUI"
 screenGui.Parent = player:WaitForChild("PlayerGui")
@@ -41,53 +41,12 @@ title.TextSize = 20
 title.Font = Enum.Font.GothamBold
 title.Parent = mainFrame
 
--- 显示/隐藏按钮
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 40, 0, 40)
-toggleButton.Position = UDim2.new(1, -40, 0, 0)
-toggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-toggleButton.Text = "X"
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.TextSize = 18
-toggleButton.Font = Enum.Font.GothamBold
-toggleButton.Parent = mainFrame
-
--- 拖动功能
-local dragging = false
-local dragStart, frameStart
-
-toggleButton.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-		dragStart = input.Position
-		frameStart = mainFrame.Position
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = input.Position - dragStart
-		mainFrame.Position = UDim2.new(
-			frameStart.X.Scale, 
-			frameStart.X.Offset + delta.X,
-			frameStart.Y.Scale,
-			frameStart.Y.Offset + delta.Y
-		)
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = false
-	end
-end)
-
 -- 步行速度滑块
 local walkSpeedLabel = Instance.new("TextLabel")
 walkSpeedLabel.Size = UDim2.new(1, -20, 0, 25)
 walkSpeedLabel.Position = UDim2.new(0, 10, 0, 50)
 walkSpeedLabel.BackgroundTransparency = 1
-walkSpeedLabel.Text = "步行速度: " .. walkSpeed
+walkSpeedLabel.Text = "步行速度: " .. _G.WalkSpeed
 walkSpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 walkSpeedLabel.TextSize = 16
 walkSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -103,16 +62,15 @@ walkSpeedSlider.Name = "WalkSpeedSlider"
 walkSpeedSlider.Parent = mainFrame
 
 local walkSpeedFill = Instance.new("Frame")
-walkSpeedFill.Size = UDim2.new((walkSpeed - 10) / 40, 0, 1, 0) -- 假设范围10-50
+walkSpeedFill.Size = UDim2.new((_G.WalkSpeed - 10) / 40, 0, 1, 0)
 walkSpeedFill.Position = UDim2.new(0, 0, 0, 0)
 walkSpeedFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
 walkSpeedFill.BorderSizePixel = 0
-walkSpeedFill.Name = "WalkSpeedFill"
 walkSpeedFill.Parent = walkSpeedSlider
 
 local walkSpeedButton = Instance.new("TextButton")
 walkSpeedButton.Size = UDim2.new(0, 20, 0, 20)
-walkSpeedButton.Position = UDim2.new((walkSpeed - 10) / 40, -10, 0.5, -10)
+walkSpeedButton.Position = UDim2.new((_G.WalkSpeed - 10) / 40, -10, 0.5, -10)
 walkSpeedButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 walkSpeedButton.Text = ""
 walkSpeedButton.ZIndex = 2
@@ -123,7 +81,7 @@ local runSpeedLabel = Instance.new("TextLabel")
 runSpeedLabel.Size = UDim2.new(1, -20, 0, 25)
 runSpeedLabel.Position = UDim2.new(0, 10, 0, 95)
 runSpeedLabel.BackgroundTransparency = 1
-runSpeedLabel.Text = "跑步速度: " .. runSpeed
+runSpeedLabel.Text = "跑步速度: " .. _G.RunSpeed
 runSpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 runSpeedLabel.TextSize = 16
 runSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -139,7 +97,7 @@ runSpeedSlider.Name = "RunSpeedSlider"
 runSpeedSlider.Parent = mainFrame
 
 local runSpeedFill = Instance.new("Frame")
-runSpeedFill.Size = UDim2.new((runSpeed - 10) / 40, 0, 1, 0) -- 假设范围10-50
+runSpeedFill.Size = UDim2.new((_G.RunSpeed - 10) / 40, 0, 1, 0)
 runSpeedFill.Position = UDim2.new(0, 0, 0, 0)
 runSpeedFill.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
 runSpeedFill.BorderSizePixel = 0
@@ -148,7 +106,7 @@ runSpeedFill.Parent = runSpeedSlider
 
 local runSpeedButton = Instance.new("TextButton")
 runSpeedButton.Size = UDim2.new(0, 20, 0, 20)
-runSpeedButton.Position = UDim2.new((runSpeed - 10) / 40, -10, 0.5, -10)
+runSpeedButton.Position = UDim2.new((_G.RunSpeed - 10) / 40, -10, 0.5, -10)
 runSpeedButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 runSpeedButton.Text = ""
 runSpeedButton.ZIndex = 2
@@ -159,7 +117,7 @@ local currentSpeedLabel = Instance.new("TextLabel")
 currentSpeedLabel.Size = UDim2.new(1, -20, 0, 30)
 currentSpeedLabel.Position = UDim2.new(0, 10, 0, 140)
 currentSpeedLabel.BackgroundTransparency = 1
-currentSpeedLabel.Text = "当前速度: " .. currentSpeed
+currentSpeedLabel.Text = "当前速度: " .. _G.CurrentSpeed
 currentSpeedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 currentSpeedLabel.TextSize = 18
 currentSpeedLabel.Font = Enum.Font.GothamBold
@@ -176,138 +134,116 @@ statusLabel.TextSize = 14
 statusLabel.Font = Enum.Font.Gotham
 statusLabel.Parent = mainFrame
 
--- 滑块拖动逻辑
-local function setupSlider(sliderFrame, fillFrame, button, label, isRunSlider)
-	local draggingSlider = false
-	
-	button.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			draggingSlider = true
-		end
-	end)
-	
-	UserInputService.InputChanged:Connect(function(input)
-		if draggingSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
-			local sliderAbsolutePosition = sliderFrame.AbsolutePosition
-			local sliderAbsoluteSize = sliderFrame.AbsoluteSize
-			local mouseX = input.Position.X
-			
-			-- 计算滑块位置 (0到1之间)
-			local relativeX = (mouseX - sliderAbsolutePosition.X) / sliderAbsoluteSize.X
-			relativeX = math.clamp(relativeX, 0, 1)
-			
-			-- 计算速度值 (10到50之间)
-			local speedValue = math.floor(0 + relativeX * 40)
-			
-			-- 更新UI
-			button.Position = UDim2.new(relativeX, -10, 0.5, -10)
-			fillFrame.Size = UDim2.new(relativeX, 0, 1, 0)
-			
-			-- 更新速度值
-			if isRunSlider then
-				runSpeed = speedValue
-				label.Text = "跑步速度: " .. runSpeed
-				if running then
-					currentSpeed = runSpeed
-					currentSpeedLabel.Text = "当前速度: " .. currentSpeed
-				end
-			else
-				walkSpeed = speedValue
-				label.Text = "步行速度: " .. walkSpeed
-				if not running then
-					currentSpeed = walkSpeed
-					currentSpeedLabel.Text = "当前速度: " .. currentSpeed
-				end
-			end
-		end
-	end)
-	
-	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			draggingSlider = false
-		end
-	end)
-	
-	-- 点击滑块任意位置跳转
-	sliderFrame.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			local sliderAbsolutePosition = sliderFrame.AbsolutePosition
-			local sliderAbsoluteSize = sliderFrame.AbsoluteSize
-			local mouseX = input.Position.X
-			
-			local relativeX = (mouseX - sliderAbsolutePosition.X) / sliderAbsoluteSize.X
-			relativeX = math.clamp(relativeX, 0, 1)
-			
-			local speedValue = math.floor(10 + relativeX * 40)
-			
-			button.Position = UDim2.new(relativeX, -10, 0.5, -10)
-			fillFrame.Size = UDim2.new(relativeX, 0, 1, 0)
-			
-			if isRunSlider then
-				runSpeed = speedValue
-				label.Text = "跑步速度: " .. runSpeed
-				if running then
-					currentSpeed = runSpeed
-					currentSpeedLabel.Text = "当前速度: " .. currentSpeed
-				end
-			else
-				walkSpeed = speedValue
-				label.Text = "步行速度: " .. walkSpeed
-				if not running then
-					currentSpeed = walkSpeed
-					currentSpeedLabel.Text = "当前速度: " .. currentSpeed
-				end
-			end
-		end
-	end)
+-- 滑块更新函数
+local function updateWalkSpeed(value)
+    _G.WalkSpeed = value
+    walkSpeedLabel.Text = "步行速度: " .. _G.WalkSpeed
+    if not running then
+        _G.CurrentSpeed = _G.WalkSpeed
+        currentSpeedLabel.Text = "当前速度: " .. _G.CurrentSpeed
+    end
 end
 
--- 设置两个滑块
+local function updateRunSpeed(value)
+    _G.RunSpeed = value
+    runSpeedLabel.Text = "跑步速度: " .. _G.RunSpeed
+    if running then
+        _G.CurrentSpeed = _G.RunSpeed
+        currentSpeedLabel.Text = "当前速度: " .. _G.CurrentSpeed
+    end
+end
+
+-- 滑块拖动逻辑
+local function setupSlider(sliderFrame, fillFrame, button, label, isRunSlider)
+    local draggingSlider = false
+    
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            draggingSlider = true
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if draggingSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local sliderAbsolutePosition = sliderFrame.AbsolutePosition
+            local sliderAbsoluteSize = sliderFrame.AbsoluteSize
+            local mouseX = input.Position.X
+            
+            local relativeX = (mouseX - sliderAbsolutePosition.X) / sliderAbsoluteSize.X
+            relativeX = math.clamp(relativeX, 0, 1)
+            
+            local speedValue = math.floor(10 + relativeX * 40)
+            
+            button.Position = UDim2.new(relativeX, -10, 0.5, -10)
+            fillFrame.Size = UDim2.new(relativeX, 0, 1, 0)
+            
+            if isRunSlider then
+                updateRunSpeed(speedValue)
+            else
+                updateWalkSpeed(speedValue)
+            end
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            draggingSlider = false
+        end
+    end)
+    
+    sliderFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local sliderAbsolutePosition = sliderFrame.AbsolutePosition
+            local sliderAbsoluteSize = sliderFrame.AbsoluteSize
+            local mouseX = input.Position.X
+            
+            local relativeX = (mouseX - sliderAbsolutePosition.X) / sliderAbsoluteSize.X
+            relativeX = math.clamp(relativeX, 0, 1)
+            
+            local speedValue = math.floor(10 + relativeX * 40)
+            
+            button.Position = UDim2.new(relativeX, -10, 0.5, -10)
+            fillFrame.Size = UDim2.new(relativeX, 0, 1, 0)
+            
+            if isRunSlider then
+                updateRunSpeed(speedValue)
+            else
+                updateWalkSpeed(speedValue)
+            end
+        end
+    end)
+end
+
+-- 设置滑块
 setupSlider(walkSpeedSlider, walkSpeedFill, walkSpeedButton, walkSpeedLabel, false)
 setupSlider(runSpeedSlider, runSpeedFill, runSpeedButton, runSpeedLabel, true)
 
--- 切换显示/隐藏
-local guiVisible = true
-toggleButton.MouseButton1Click:Connect(function()
-	guiVisible = not guiVisible
-	mainFrame.Visible = guiVisible
-	toggleButton.Text = guiVisible and "X" or "+"
-	
-	if not guiVisible then
-		-- 隐藏时缩小按钮
-		toggleButton.Size = UDim2.new(0, 40, 0, 40)
-		toggleButton.Text = "+"
-	else
-		-- 显示时恢复
-		toggleButton.Text = "X"
-	end
-end)
-
--- 原来的移动逻辑
+-- ==== 移动逻辑（使用_G中的变量）====
 UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.LeftShift then
-		running = true
-		currentSpeed = runSpeed
-		currentSpeedLabel.Text = "当前速度: " .. currentSpeed
-		statusLabel.Text = "状态: 跑步"
-		statusLabel.TextColor3 = Color3.fromRGB(255, 150, 150)
-	end
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.LeftShift then
+        running = true
+        _G.CurrentSpeed = _G.RunSpeed
+        currentSpeedLabel.Text = "当前速度: " .. _G.CurrentSpeed
+        statusLabel.Text = "状态: 跑步"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 150, 150)
+    end
 end)
 
 UserInputService.InputEnded:Connect(function(input, gpe)
-	if input.KeyCode == Enum.KeyCode.LeftShift then
-		running = false
-		currentSpeed = walkSpeed
-		currentSpeedLabel.Text = "当前速度: " .. currentSpeed
-		statusLabel.Text = "状态: 步行"
-		statusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
-	end
+    if input.KeyCode == Enum.KeyCode.LeftShift then
+        running = false
+        _G.CurrentSpeed = _G.WalkSpeed
+        currentSpeedLabel.Text = "当前速度: " .. _G.CurrentSpeed
+        statusLabel.Text = "状态: 步行"
+        statusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+    end
 end)
 
 RunService.RenderStepped:Connect(function(dt)
-	local moveDir = humanoid.MoveDirection
-	if moveDir.Magnitude > 0 then
-		hrp.CFrame = hrp.CFrame + (moveDir * currentSpeed * dt)
-	end
+    local moveDir = humanoid.MoveDirection
+    if moveDir.Magnitude > 0 then
+        -- 关键：使用 _G.CurrentSpeed 而不是局部变量
+        hrp.CFrame = hrp.CFrame + (moveDir * _G.CurrentSpeed * dt)
+    end
 end)
