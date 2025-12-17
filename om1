@@ -10,7 +10,7 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
 
 -- 速度设置
-local walkSpeed = 16      
+local walkSpeed = 14      
 local runSpeed = 26.5   
 local currentSpeed = walkSpeed
 local running = false
