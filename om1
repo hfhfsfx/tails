@@ -1,106 +1,40 @@
--- 自动锁定最近玩家视角脚本（Dimensional Coalescence适配）
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 
--- 配置项（按需改，不用动核心代码）
-local CONFIG = {
-    LockKey = Enum.KeyCode.LeftAlt,  -- 锁定按键（左Alt，可改：RightAlt、F、V等）
-    IgnoreTeammates = true,         -- 是否忽略队友（true=只锁敌人，false=全锁）
-    MaxLockDistance = 20000,          -- 最大锁定距离（超出不锁，单位 studs）
-    SmoothFollow = 0.1,             -- 视角跟随平滑度（越小越丝滑，0.05-0.2最佳）
-    LockOffset = Vector3.new(0, 3, 0) -- 锁定视角偏移（对准玩家头部，不用改）
-}
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+local humanoid = char:WaitForChild("Humanoid")
 
--- 全局变量（自动初始化，不用动）
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local IsLocked = false
-local TargetPlayer = nil
+-- speed
+local walkSpeed = 16      
+local runSpeed = 26.5   
+local currentSpeed = walkSpeed
 
--- 检测队友（根据团队属性判断，适配多数游戏）
-local function isTeammate(player1, player2)
-    if not player1.Team or not player2.Team then return false end
-    return player1.Team == player2.Team
-end
 
--- 找到最近的可锁定玩家
-local function findNearestTarget()
-    local character = LocalPlayer.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return nil end
+local running = false
 
-    local nearestPlayer = nil
-    local minDistance = CONFIG.MaxLockDistance
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        -- 跳过自己+队友（按需跳过）
-        if player ~= LocalPlayer and (not CONFIG.IgnoreTeammates or not isTeammate(LocalPlayer, player)) then
-            local targetChar = player.Character
-            local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-            local targetHumanoid = targetChar and targetChar:FindFirstChild("Humanoid")
-            
-            -- 只锁存活的玩家（有根部件+血量>0）
-            if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
-                local distance = (rootPart.Position - targetRoot.Position).Magnitude
-                if distance < minDistance then
-                    minDistance = distance
-                    nearestPlayer = player
-                end
-            end
-        end
-    end
-    return nearestPlayer
-end
-
--- 锁定/解除锁定逻辑
-local function toggleLock()
-    IsLocked = not IsLocked
-    if IsLocked then
-        TargetPlayer = findNearestTarget()
-        if not TargetPlayer then IsLocked = false end -- 没找到目标，不锁定
-    else
-        TargetPlayer = nil
-        Camera.CameraType = Enum.CameraType.Custom -- 恢复默认视角
-    end
-end
-
--- 按键监听（按下锁定，再按解除）
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end -- 忽略打字时的按键
-    if input.KeyCode == CONFIG.LockKey then
-        toggleLock()
-    end
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.LeftShift then
+		running = true
+		currentSpeed = runSpeed
+	end
 end)
 
--- 实时更新视角锁定（每帧执行，丝滑跟随）
-RunService.RenderStepped:Connect(function()
-    if not IsLocked or not TargetPlayer then return end
-    
-    local targetChar = TargetPlayer.Character
-    local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-    local targetHumanoid = targetChar and targetChar:FindFirstChild("Humanoid")
-    
-    -- 目标消失/死亡，自动解除锁定
-    if not targetRoot or not targetHumanoid or targetHumanoid.Health <= 0 then
-        IsLocked = false
-        TargetPlayer = nil
-        Camera.CameraType = Enum.CameraType.Custom
-        return
-    end
-
-    -- 平滑跟随目标（对准头部偏移位置）
-    local targetPosition = targetRoot.Position + CONFIG.LockOffset
-    local cameraPosition = Camera.CFrame.Position
-    local newCFrame = CFrame.lookAt(cameraPosition, targetPosition)
-    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, CONFIG.SmoothFollow)
+UserInputService.InputEnded:Connect(function(input, gpe)
+	if input.KeyCode == Enum.KeyCode.LeftShift then
+		running = false
+		currentSpeed = walkSpeed
+	end
 end)
 
--- 角色重生时，自动重置锁定状态
-LocalPlayer.CharacterAdded:Connect(function()
-    IsLocked = false
-    TargetPlayer = nil
-    Camera.CameraType = Enum.CameraType.Custom
-end)
 
-print("✅ 视角锁定脚本加载成功！按【"..CONFIG.LockKey.Name.."】锁定最近玩家")
+RunService.RenderStepped:Connect(function(dt)
+	local moveDir = humanoid.MoveDirection
+	if moveDir.Magnitude > 0 then
+		
+		hrp.CFrame = hrp.CFrame + (moveDir * currentSpeed * dt)
+	end
+end)
