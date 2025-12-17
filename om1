@@ -9,7 +9,7 @@ local humanoid = char:WaitForChild("Humanoid")
 
 -- speed
 local walkSpeed = 16      
-local runSpeed = 26.5   
+local runSpeed = 24   
 local currentSpeed = walkSpeed
 
 
