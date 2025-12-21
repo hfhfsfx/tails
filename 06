@@ -1,0 +1,381 @@
+-- Roblox 物品透视ESP脚本
+-- 适用于Synapse、KRNL、Fluxus等注入器
+
+-- 配置设置
+local Settings = {
+    Enabled = true,                     -- 总开关
+    BoxESP = true,                      -- 显示方框
+    NameESP = true,                     -- 显示名称
+    Distance = true,                    -- 显示距离
+    MaxDistance = 500,                  -- 最大显示距离
+    TextSize = 14,                      -- 文字大小
+    TextColor = Color3.fromRGB(255, 255, 0), -- 黄色
+    BoxColor = Color3.fromRGB(255, 50, 50),  -- 红色方框
+    Tracer = false,                     -- 显示追踪线
+    TracerColor = Color3.fromRGB(255, 150, 0), -- 橙色追踪线
+    FillBox = false,                    -- 填充方框
+    FillTransparency = 0.3,             -- 填充透明度
+    TeamCheck = false,                  -- 队伍检查（如果需要）
+    TeamColor = false,                  -- 根据队伍变色
+    UpdateDelay = 0.1,                  -- 更新延迟
+}
+
+-- 关键服务
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local Camera = Workspace.CurrentCamera
+
+-- 本地玩家
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- 存储ESP对象
+local ESPObjects = {}
+local Connections = {}
+
+-- 创建Drawing对象（注入器专用，比ScreenGui性能更好）
+local function CreateESP(item)
+    if ESPObjects[item] then return ESPObjects[item] end
+    
+    local esp = {
+        Box = Drawing.new("Square"),
+        Name = Drawing.new("Text"),
+        Distance = Drawing.new("Text"),
+        Tracer = Settings.Tracer and Drawing.new("Line") or nil,
+        Item = item
+    }
+    
+    -- 配置方框
+    esp.Box.Visible = Settings.BoxESP
+    esp.Box.Color = Settings.BoxColor
+    esp.Box.Thickness = 2
+    esp.Box.Filled = Settings.FillBox
+    esp.Box.Transparency = Settings.FillBox and Settings.FillTransparency or 1
+    esp.Box.ZIndex = 10
+    
+    -- 配置名称文本
+    esp.Name.Visible = Settings.NameESP
+    esp.Name.Color = Settings.TextColor
+    esp.Name.Size = Settings.TextSize
+    esp.Name.Center = true
+    esp.Name.Outline = true
+    esp.Name.OutlineColor = Color3.new(0, 0, 0)
+    esp.Name.ZIndex = 11
+    
+    -- 配置距离文本
+    esp.Distance.Visible = Settings.Distance
+    esp.Distance.Color = Color3.fromRGB(0, 255, 255) -- 青色
+    esp.Distance.Size = Settings.TextSize - 2
+    esp.Distance.Center = true
+    esp.Distance.Outline = true
+    esp.Distance.OutlineColor = Color3.new(0, 0, 0)
+    esp.Distance.ZIndex = 11
+    
+    -- 配置追踪线
+    if Settings.Tracer then
+        esp.Tracer.Visible = Settings.Tracer
+        esp.Tracer.Color = Settings.TracerColor
+        esp.Tracer.Thickness = 1
+        esp.Tracer.ZIndex = 9
+    end
+    
+    ESPObjects[item] = esp
+    return esp
+end
+
+-- 销毁ESP对象
+local function RemoveESP(item)
+    if ESPObjects[item] then
+        for _, drawing in pairs(ESPObjects[item]) do
+            if typeof(drawing) == "Drawing" then
+                drawing:Remove()
+            end
+        end
+        ESPObjects[item] = nil
+    end
+end
+
+-- 获取物品位置和尺寸
+local function GetItemBounds(item)
+    if item:IsA("BasePart") then
+        return item.Position, item.Size
+    elseif item:IsA("Model") then
+        local primaryPart = item.PrimaryPart
+        if primaryPart then
+            return primaryPart.Position, primaryPart.Size
+        else
+            -- 计算模型边界
+            local min = Vector3.new(math.huge, math.huge, math.huge)
+            local max = Vector3.new(-math.huge, -math.huge, -math.huge)
+            
+            for _, part in ipairs(item:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    local cf = part.CFrame
+                    local size = part.Size
+                    local vertices = {
+                        cf:PointToWorldSpace(Vector3.new(size.X/2, size.Y/2, size.Z/2)),
+                        cf:PointToWorldSpace(Vector3.new(-size.X/2, size.Y/2, size.Z/2)),
+                        cf:PointToWorldSpace(Vector3.new(size.X/2, -size.Y/2, size.Z/2)),
+                        cf:PointToWorldSpace(Vector3.new(-size.X/2, -size.Y/2, size.Z/2)),
+                        cf:PointToWorldSpace(Vector3.new(size.X/2, size.Y/2, -size.Z/2)),
+                        cf:PointToWorldSpace(Vector3.new(-size.X/2, size.Y/2, -size.Z/2)),
+                        cf:PointToWorldSpace(Vector3.new(size.X/2, -size.Y/2, -size.Z/2)),
+                        cf:PointToWorldSpace(Vector3.new(-size.X/2, -size.Y/2, -size.Z/2))
+                    }
+                    
+                    for _, vertex in ipairs(vertices) do
+                        min = Vector3.new(math.min(min.X, vertex.X), math.min(min.Y, vertex.Y), math.min(min.Z, vertex.Z))
+                        max = Vector3.new(math.max(max.X, vertex.X), math.max(max.Y, vertex.Y), math.max(max.Z, vertex.Z))
+                    end
+                end
+            end
+            
+            if min ~= Vector3.new(math.huge, math.huge, math.huge) then
+                local center = (min + max) / 2
+                local size = max - min
+                return center, size
+            end
+        end
+    end
+    return nil, nil
+end
+
+-- 更新ESP显示
+local function UpdateESP()
+    if not Settings.Enabled then return end
+    
+    local character = LocalPlayer.Character
+    local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
+    local playerPos = playerRoot and playerRoot.Position or Vector3.new(0, 0, 0)
+    
+    for item, esp in pairs(ESPObjects) do
+        if not item or not item.Parent then
+            RemoveESP(item)
+        else
+            local position, size = GetItemBounds(item)
+            
+            if position and size then
+                -- 计算距离
+                local distance = (position - playerPos).Magnitude
+                
+                -- 距离过滤
+                if distance > Settings.MaxDistance then
+                    esp.Box.Visible = false
+                    esp.Name.Visible = false
+                    esp.Distance.Visible = false
+                    if esp.Tracer then esp.Tracer.Visible = false end
+                    goto continue
+                end
+                
+                -- 3D转2D
+                local screenPos, onScreen = Camera:WorldToViewportPoint(position)
+                
+                if onScreen then
+                    -- 计算方框尺寸
+                    local scale = 1000 / (screenPos.Z * math.tan(math.rad(Camera.FieldOfView * 0.5)) * 2)
+                    local width = size.X * scale
+                    local height = size.Y * scale
+                    
+                    -- 更新方框
+                    esp.Box.Visible = Settings.BoxESP
+                    esp.Box.Position = Vector2.new(screenPos.X - width/2, screenPos.Y - height/2)
+                    esp.Box.Size = Vector2.new(width, height)
+                    
+                    -- 更新名称
+                    esp.Name.Visible = Settings.NameESP
+                    esp.Name.Position = Vector2.new(screenPos.X, screenPos.Y - height/2 - 20)
+                    esp.Name.Text = item.Name
+                    
+                    -- 更新距离
+                    esp.Distance.Visible = Settings.Distance
+                    esp.Distance.Position = Vector2.new(screenPos.X, screenPos.Y + height/2 + 10)
+                    esp.Distance.Text = string.format("[%dm]", math.floor(distance))
+                    
+                    -- 更新追踪线
+                    if Settings.Tracer and esp.Tracer then
+                        esp.Tracer.Visible = Settings.Tracer
+                        esp.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                        esp.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+                    end
+                    
+                    -- 根据距离调整透明度
+                    local alpha = 1 - (distance / Settings.MaxDistance) * 0.7
+                    alpha = math.clamp(alpha, 0.3, 1)
+                    
+                    esp.Box.Transparency = 1 - alpha
+                    esp.Name.Transparency = 1 - alpha
+                    esp.Distance.Transparency = 1 - alpha
+                    if esp.Tracer then esp.Tracer.Transparency = 1 - alpha end
+                else
+                    -- 不在屏幕内隐藏
+                    esp.Box.Visible = false
+                    esp.Name.Visible = false
+                    esp.Distance.Visible = false
+                    if esp.Tracer then esp.Tracer.Visible = false end
+                end
+            end
+        end
+        
+        ::continue::
+    end
+end
+
+-- 扫描并添加物品
+local function ScanItems()
+    -- 尝试不同的路径
+    local paths = {
+        workspace.game.map.items,
+        workspace:FindFirstChild("game") and workspace.game:FindFirstChild("map") and workspace.game.map:FindFirstChild("items"),
+        workspace:FindFirstChild("Items"),
+        workspace:FindFirstChild("Loot"),
+        workspace:FindFirstChild("Drops"),
+    }
+    
+    local itemsFolder
+    for _, path in ipairs(paths) do
+        if path then
+            itemsFolder = path
+            break
+        end
+    end
+    
+    if itemsFolder then
+        for _, item in ipairs(itemsFolder:GetChildren()) do
+            if item:IsA("BasePart") or item:IsA("Model") then
+                CreateESP(item)
+            end
+        end
+        
+        -- 监听新物品
+        local connection
+        connection = itemsFolder.ChildAdded:Connect(function(item)
+            task.wait(0.2)
+            if item:IsA("BasePart") or item:IsA("Model") then
+                CreateESP(item)
+            end
+        end)
+        table.insert(Connections, connection)
+        
+        connection = itemsFolder.ChildRemoved:Connect(function(item)
+            RemoveESP(item)
+        end)
+        table.insert(Connections, connection)
+    else
+        warn("[ESP] 未找到物品文件夹，尝试搜索所有物品...")
+        
+        -- 如果找不到特定文件夹，扫描所有可能物品
+        for _, item in ipairs(Workspace:GetDescendants()) do
+            if (item:IsA("BasePart") or item:IsA("Model")) and 
+               (item.Name:lower():find("item") or 
+                item.Name:lower():find("loot") or 
+                item.Name:lower():find("drop") or
+                item.Name:lower():find("coin") or
+                item.Name:lower():find("gem") or
+                item.Name:lower():find("reward")) then
+                CreateESP(item)
+            end
+        end
+    end
+end
+
+-- 创建UI界面（可选）
+local function CreateUI()
+    -- 创建简单的文本显示
+    local espText = Drawing.new("Text")
+    espText.Visible = true
+    espText.Text = "物品透视 [ON]"
+    espText.Color = Color3.fromRGB(0, 255, 0)
+    espText.Size = 18
+    espText.Position = Vector2.new(10, 10)
+    espText.Outline = true
+    espText.OutlineColor = Color3.new(0, 0, 0)
+    
+    -- 开关控制（按Insert键）
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if not processed then
+            if input.KeyCode == Enum.KeyCode.Insert then
+                Settings.Enabled = not Settings.Enabled
+                espText.Text = Settings.Enabled and "物品透视 [ON]" or "物品透视 [OFF]"
+                espText.Color = Settings.Enabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+                
+                -- 隐藏所有ESP
+                if not Settings.Enabled then
+                    for _, esp in pairs(ESPObjects) do
+                        esp.Box.Visible = false
+                        esp.Name.Visible = false
+                        esp.Distance.Visible = false
+                        if esp.Tracer then esp.Tracer.Visible = false end
+                    end
+                end
+            elseif input.KeyCode == Enum.KeyCode.End then
+                -- 清理并退出
+                for _, connection in ipairs(Connections) do
+                    connection:Disconnect()
+                end
+                
+                for _, esp in pairs(ESPObjects) do
+                    RemoveESP(esp.Item)
+                end
+                
+                espText:Remove()
+                ESPObjects = {}
+                
+                print("[ESP] 脚本已卸载")
+                return
+            end
+        end
+    end)
+end
+
+-- 初始化
+task.wait(2)  -- 等待游戏加载
+
+print("[ESP] 正在加载物品透视...")
+print("[ESP] 控制键:")
+print("  Insert - 开关透视")
+print("  End    - 卸载脚本")
+
+ScanItems()
+CreateUI()
+
+-- 主循环
+local updateConnection = RunService.RenderStepped:Connect(UpdateESP)
+table.insert(Connections, updateConnection)
+
+-- 重新扫描功能（按F5）
+UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.F5 then
+        print("[ESP] 重新扫描物品...")
+        
+        -- 清理旧ESP
+        for _, esp in pairs(ESPObjects) do
+            RemoveESP(esp.Item)
+        end
+        ESPObjects = {}
+        
+        -- 重新扫描
+        ScanItems()
+    end
+end)
+
+-- 自动清理
+local function Cleanup()
+    for _, connection in ipairs(Connections) do
+        connection:Disconnect()
+    end
+    
+    for _, esp in pairs(ESPObjects) do
+        RemoveESP(esp.Item)
+    end
+    
+    ESPObjects = {}
+    print("[ESP] 已清理")
+end
+
+-- 游戏退出时清理
+game:GetService("CoreGui").ChildRemoved:Connect(Cleanup)
+
+print("[ESP] 加载完成!")
