@@ -1,260 +1,353 @@
--- Roblox 物品透视脚本
--- 显示 workspace.game.map.items 中的所有物品并添加名称标签
+-- 按钮创建和传送脚本 - 传送到更高位置（可随时停止）
+-- 适用于Roblox注入器
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
-local localPlayer = Players.LocalPlayer
-if not localPlayer then
-    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
-    localPlayer = Players.LocalPlayer
+-- 全局变量
+local isTeleporting = false
+local currentTeleportTask = nil
+local baseHeight = 15
+
+-- 创建GUI按钮
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game.CoreGui
+
+-- 主按钮容器
+local ButtonContainer = Instance.new("Frame")
+ButtonContainer.Size = UDim2.new(0, 210, 0, 120)
+ButtonContainer.Position = UDim2.new(0.5, -105, 0, 20)
+ButtonContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ButtonContainer.BackgroundTransparency = 0.2
+ButtonContainer.Parent = ScreenGui
+
+-- 添加容器圆角
+local ContainerCorner = Instance.new("UICorner")
+ContainerCorner.CornerRadius = UDim.new(0, 10)
+ContainerCorner.Parent = ButtonContainer
+
+-- 传送按钮
+local TeleportButton = Instance.new("TextButton")
+TeleportButton.Size = UDim2.new(0.9, 0, 0.3, 0)
+TeleportButton.Position = UDim2.new(0.05, 0, 0.05, 0)
+TeleportButton.Text = "开始传送到所有僵尸"
+TeleportButton.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+TeleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TeleportButton.Font = Enum.Font.GothamBold
+TeleportButton.TextSize = 14
+TeleportButton.Parent = ButtonContainer
+
+-- 停止按钮
+local StopButton = Instance.new("TextButton")
+StopButton.Size = UDim2.new(0.9, 0, 0.3, 0)
+StopButton.Position = UDim2.new(0.05, 0, 0.4, 0)
+StopButton.Text = "停止传送"
+StopButton.BackgroundColor3 = Color3.fromRGB(215, 60, 0)
+StopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+StopButton.Font = Enum.Font.GothamBold
+StopButton.TextSize = 14
+StopButton.Visible = false  -- 初始隐藏
+StopButton.Parent = ButtonContainer
+
+-- 状态标签
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(0.9, 0, 0.2, 0)
+StatusLabel.Position = UDim2.new(0.05, 0, 0.75, 0)
+StatusLabel.Text = "状态: 就绪"
+StatusLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.TextSize = 12
+StatusLabel.Parent = ButtonContainer
+
+-- 添加按钮圆角
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 6)
+ButtonCorner.Parent = TeleportButton
+
+local StopButtonCorner = Instance.new("UICorner")
+StopButtonCorner.CornerRadius = UDim.new(0, 6)
+StopButtonCorner.Parent = StopButton
+
+-- 按钮悬停效果
+TeleportButton.MouseEnter:Connect(function()
+    if not isTeleporting then
+        game:GetService("TweenService"):Create(TeleportButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(0, 150, 255)}):Play()
+    end
+end)
+
+TeleportButton.MouseLeave:Connect(function()
+    if not isTeleporting then
+        game:GetService("TweenService"):Create(TeleportButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(0, 120, 215)}):Play()
+    end
+end)
+
+StopButton.MouseEnter:Connect(function()
+    game:GetService("TweenService"):Create(StopButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 80, 0)}):Play()
+end)
+
+StopButton.MouseLeave:Connect(function()
+    game:GetService("TweenService"):Create(StopButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(215, 60, 0)}):Play()
+end)
+
+-- 停止传送函数
+local function stopTeleportation()
+    if isTeleporting then
+        isTeleporting = false
+        StatusLabel.Text = "状态: 正在停止..."
+        
+        -- 如果有正在运行的任务，停止它
+        if currentTeleportTask then
+            coroutine.close(currentTeleportTask)
+            currentTeleportTask = nil
+        end
+        
+        -- 重置按钮状态
+        TeleportButton.Text = "开始传送到所有僵尸"
+        TeleportButton.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+        StopButton.Visible = false
+        StatusLabel.Text = "状态: 已停止"
+        
+        print("传送已停止")
+        
+        -- 2秒后恢复"就绪"状态
+        wait(2)
+        StatusLabel.Text = "状态: 就绪"
+    end
 end
 
-local itemsFolder = workspace:FindFirstChild("game") and workspace.game:FindFirstChild("map") and workspace.game.map:FindFirstChild("items")
-
-if not itemsFolder then
-    warn("无法找到 items 文件夹，请检查路径：workspace.game.map.items")
-    return
-end
-
--- 存储所有创建的标签
-local itemLabels = {}
-local enabled = true
-
--- 创建透视标签
-local function createLabel(item)
-    if not item:IsA("BasePart") and not item:IsA("Model") then
+-- 传送函数
+local function teleportToAllZombies()
+    -- 检查是否已经在传送
+    if isTeleporting then
         return
     end
     
-    local name = item.Name
-    local primaryPart = nil
-    
-    if item:IsA("Model") then
-        primaryPart = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart")
-    else
-        primaryPart = item
-    end
-    
-    if not primaryPart then
+    -- 检查路径是否存在
+    if not Workspace:FindFirstChild("game") then
+        warn("未找到 'game' 文件夹")
+        StatusLabel.Text = "状态: 错误 - 找不到game文件夹"
         return
     end
     
-    -- 创建BillboardGui（屏幕空间标签）
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ItemLabel_" .. name
-    billboard.Adornee = primaryPart
-    billboard.Size = UDim2.new(0, 200, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.AlwaysOnTop = true
-    billboard.MaxDistance = 1000
-    billboard.Enabled = enabled
+    local gameFolder = Workspace.game
     
-    -- 创建背景框
-    local frame = Instance.new("Frame")
-    frame.Name = "Background"
-    frame.Size = UDim2.new(1, 0, 1, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    frame.BackgroundTransparency = 0.5
-    frame.BorderSizePixel = 0
+    if not gameFolder:FindFirstChild("map") then
+        warn("未找到 'map' 文件夹")
+        StatusLabel.Text = "状态: 错误 - 找不到map文件夹"
+        return
+    end
     
-    -- 创建物品名称文本
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Name = "ItemName"
-    nameLabel.Size = UDim2.new(1, 0, 0.7, 0)
-    nameLabel.Position = UDim2.new(0, 0, 0, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = name
-    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 0) -- 黄色
-    nameLabel.TextScaled = true
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextStrokeTransparency = 0.5
+    local mapFolder = gameFolder.map
     
-    -- 创建距离文本
-    local distanceLabel = Instance.new("TextLabel")
-    distanceLabel.Name = "Distance"
-    distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
-    distanceLabel.Position = UDim2.new(0, 0, 0.7, 0)
-    distanceLabel.BackgroundTransparency = 1
-    distanceLabel.TextColor3 = Color3.fromRGB(200, 200, 200) -- 浅灰色
-    distanceLabel.TextScaled = true
-    distanceLabel.Font = Enum.Font.Gotham
+    if not mapFolder:FindFirstChild("zombies") then
+        warn("未找到 'zombies' 文件夹")
+        StatusLabel.Text = "状态: 错误 - 找不到zombies文件夹"
+        return
+    end
     
-    -- 组装标签
-    frame.Parent = billboard
-    nameLabel.Parent = frame
-    distanceLabel.Parent = frame
+    local zombiesFolder = mapFolder.zombies
     
-    -- 将标签添加到ScreenGui
-    local screenGui = CoreGui:FindFirstChild("ItemESP") or Instance.new("ScreenGui")
-    screenGui.Name = "ItemESP"
-    screenGui.Parent = CoreGui
+    -- 获取所有僵尸模型
+    local zombieModels = {}
+    for _, child in pairs(zombiesFolder:GetChildren()) do
+        if child:IsA("Model") then
+            table.insert(zombieModels, child)
+        end
+    end
     
-    billboard.Parent = screenGui
+    if #zombieModels == 0 then
+        warn("没有找到僵尸模型")
+        StatusLabel.Text = "状态: 错误 - 没有找到僵尸"
+        return
+    end
     
-    -- 存储引用
-    itemLabels[item] = {
-        billboard = billboard,
-        primaryPart = primaryPart,
-        nameLabel = nameLabel,
-        distanceLabel = distanceLabel
-    }
+    print("找到 " .. #zombieModels .. " 个僵尸")
     
-    -- 添加高亮效果（可选）
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ItemHighlight"
-    highlight.FillColor = Color3.fromRGB(255, 255, 0) -- 黄色
-    highlight.FillTransparency = 0.7
-    highlight.OutlineColor = Color3.fromRGB(255, 200, 0)
-    highlight.OutlineTransparency = 0
-    highlight.Enabled = enabled
-    highlight.Parent = item
+    -- 开始传送
+    isTeleporting = true
+    TeleportButton.Text = "传送中..."
+    TeleportButton.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+    StopButton.Visible = true
+    StatusLabel.Text = "状态: 传送中 (0/" .. #zombieModels .. ")"
     
-    return itemLabels[item]
-end
-
--- 更新标签位置和距离
-local function updateLabels()
-    if not enabled then return end
-    
-    local character = localPlayer.Character
-    local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
-    
-    for item, labelData in pairs(itemLabels) do
-        if labelData.billboard and labelData.billboard.Parent and labelData.primaryPart and labelData.primaryPart.Parent then
-            -- 更新距离
-            if playerRoot then
-                local distance = (playerRoot.Position - labelData.primaryPart.Position).Magnitude
-                labelData.distanceLabel.Text = string.format("%.1f 米", distance)
-                
-                -- 根据距离调整颜色
-                if distance < 10 then
-                    labelData.nameLabel.TextColor3 = Color3.fromRGB(0, 255, 0) -- 绿色（近）
-                elseif distance < 30 then
-                    labelData.nameLabel.TextColor3 = Color3.fromRGB(255, 255, 0) -- 黄色（中）
+    -- 在协程中执行传送，以便可以随时停止
+    currentTeleportTask = coroutine.create(function()
+        -- 依次传送到每个僵尸
+        for i, zombie in ipairs(zombieModels) do
+            -- 检查是否被停止
+            if not isTeleporting then
+                break
+            end
+            
+            -- 检查玩家角色
+            if not Character or not Character:FindFirstChild("HumanoidRootPart") then
+                Character = LocalPlayer.Character
+                if Character then
+                    HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
                 else
-                    labelData.nameLabel.TextColor3 = Color3.fromRGB(255, 100, 100) -- 红色（远）
+                    warn("角色不存在")
+                    break
                 end
             end
-        else
-            -- 清理无效标签
-            if labelData.billboard then
-                labelData.billboard:Destroy()
-            end
-            itemLabels[item] = nil
-        end
-    end
-end
-
--- 扫描并创建所有物品标签
-local function scanItems()
-    for _, item in pairs(itemsFolder:GetChildren()) do
-        if not itemLabels[item] then
-            createLabel(item)
-        end
-    end
-    
-    -- 检查是否有物品被移除
-    for item, labelData in pairs(itemLabels) do
-        if not item.Parent or item.Parent ~= itemsFolder then
-            if labelData.billboard then
-                labelData.billboard:Destroy()
-            end
-            itemLabels[item] = nil
-        end
-    end
-end
-
--- 监听新物品
-itemsFolder.ChildAdded:Connect(function(child)
-    task.wait(0.5) -- 等待物品完全加载
-    if enabled then
-        createLabel(child)
-    end
-end)
-
--- 监听物品移除
-itemsFolder.ChildRemoved:Connect(function(child)
-    if itemLabels[child] then
-        if itemLabels[child].billboard then
-            itemLabels[child].billboard:Destroy()
-        end
-        itemLabels[child] = nil
-    end
-end)
-
--- 创建GUI控制界面
-local function createControlGUI()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ItemESPControls"
-    
-    local frame = Instance.new("Frame")
-    frame.Name = "ControlPanel"
-    frame.Size = UDim2.new(0, 200, 0, 100)
-    frame.Position = UDim2.new(0, 10, 0, 10)
-    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    frame.BackgroundTransparency = 0.3
-    frame.BorderSizePixel = 0
-    
-    local title = Instance.new("TextLabel")
-    title.Name = "Title"
-    title.Size = UDim2.new(1, 0, 0, 30)
-    title.Position = UDim2.new(0, 0, 0, 0)
-    title.BackgroundTransparency = 1
-    title.Text = "物品透视控制"
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.Font = Enum.Font.GothamBold
-    
-    local toggleButton = Instance.new("TextButton")
-    toggleButton.Name = "ToggleButton"
-    toggleButton.Size = UDim2.new(0.8, 0, 0, 40)
-    toggleButton.Position = UDim2.new(0.1, 0, 0.4, 0)
-    toggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    toggleButton.Text = "关闭透视"
-    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleButton.Font = Enum.Font.Gotham
-    
-    toggleButton.MouseButton1Click:Connect(function()
-        enabled = not enabled
-        
-        -- 切换所有标签和高亮
-        for item, labelData in pairs(itemLabels) do
-            if labelData.billboard then
-                labelData.billboard.Enabled = enabled
-            end
-            local highlight = item:FindFirstChild("ItemHighlight")
-            if highlight then
-                highlight.Enabled = enabled
+            
+            -- 更新状态
+            StatusLabel.Text = "状态: 传送中 (" .. i .. "/" .. #zombieModels .. ")"
+            
+            -- 寻找僵尸的头部
+            local head = zombie:FindFirstChild("Head")
+            local humanoidRootPart = zombie:FindFirstChild("HumanoidRootPart") or zombie:FindFirstChild("Torso")
+            
+            if head or humanoidRootPart then
+                local targetPart = head or humanoidRootPart
+                
+                -- 计算传送位置（传送到目标正上方更高的位置）
+                local teleportPosition
+                
+                -- 使用模型高度或基础高度
+                if zombie:GetExtentsSize().Y > 0 then
+                    local modelHeight = zombie:GetExtentsSize().Y
+                    teleportPosition = targetPart.Position + Vector3.new(0, modelHeight + baseHeight, 0)
+                else
+                    teleportPosition = targetPart.Position + Vector3.new(0, baseHeight, 0)
+                end
+                
+                -- 执行传送
+                HumanoidRootPart.CFrame = CFrame.new(teleportPosition)
+                
+                print("已传送到僵尸 #" .. i .. " (" .. zombie.Name .. ")")
+                
+                -- 等待1秒后传送到下一个
+                for waitTime = 1, 0, -0.1 do
+                    if not isTeleporting then
+                        break
+                    end
+                    wait(0.1)
+                end
+                
+            else
+                warn("僵尸 " .. zombie.Name .. " 没有找到头部或躯干")
+                -- 如果找不到头部，使用模型的位置
+                local teleportPosition = zombie:GetPivot().Position + Vector3.new(0, baseHeight, 0)
+                HumanoidRootPart.CFrame = CFrame.new(teleportPosition)
+                
+                -- 等待1秒
+                for waitTime = 1, 0, -0.1 do
+                    if not isTeleporting then
+                        break
+                    end
+                    wait(0.1)
+                end
             end
         end
         
-        toggleButton.Text = enabled and "关闭透视" or "开启透视"
-        toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(100, 60, 60)
+        -- 传送完成或停止后的处理
+        if isTeleporting then
+            -- 自然完成
+            StatusLabel.Text = "状态: 传送完成!"
+            TeleportButton.Text = "开始传送到所有僵尸"
+            TeleportButton.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+            StopButton.Visible = false
+            print("传送完成！")
+            
+            -- 3秒后恢复"就绪"状态
+            wait(3)
+            StatusLabel.Text = "状态: 就绪"
+        end
+        
+        isTeleporting = false
+        currentTeleportTask = nil
     end)
     
-    -- 组装控制面板
-    title.Parent = frame
-    toggleButton.Parent = frame
-    frame.Parent = screenGui
-    screenGui.Parent = CoreGui
+    -- 启动协程
+    coroutine.resume(currentTeleportTask)
 end
 
--- 初始化
-task.wait(1) -- 等待游戏加载
-scanItems()
-createControlGUI()
-
--- 主循环
-RunService.RenderStepped:Connect(function()
-    if enabled then
-        updateLabels()
+-- 按钮点击事件
+TeleportButton.MouseButton1Click:Connect(function()
+    if not isTeleporting then
+        teleportToAllZombies()
     end
 end)
 
--- 自动重新扫描（每10秒一次）
-while task.wait(10) do
-    if enabled then
-        scanItems()
+StopButton.MouseButton1Click:Connect(function()
+    stopTeleportation()
+end)
+
+-- 可选：添加键盘快捷键
+local UserInputService = game:GetService("UserInputService")
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.T and not gameProcessed and not isTeleporting then
+        teleportToAllZombies()
+    elseif input.KeyCode == Enum.KeyCode.Y and not gameProcessed and isTeleporting then
+        stopTeleportation()
     end
-end
+end)
+
+-- 添加高度调节滑块
+local heightSliderGui = Instance.new("ScreenGui")
+heightSliderGui.Parent = game.CoreGui
+
+local heightFrame = Instance.new("Frame")
+heightFrame.Size = UDim2.new(0, 210, 0, 80)
+heightFrame.Position = UDim2.new(0.5, -105, 0, 150)
+heightFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+heightFrame.BackgroundTransparency = 0.3
+heightFrame.Parent = heightSliderGui
+
+local heightLabel = Instance.new("TextLabel")
+heightLabel.Size = UDim2.new(1, 0, 0.4, 0)
+heightLabel.Text = "传送高度: " .. baseHeight .. " studs"
+heightLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+heightLabel.BackgroundTransparency = 1
+heightLabel.Parent = heightFrame
+
+local heightSlider = Instance.new("TextButton")
+heightSlider.Size = UDim2.new(0.9, 0, 0.3, 0)
+heightSlider.Position = UDim2.new(0.05, 0, 0.5, 0)
+heightSlider.Text = ""
+heightSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+heightSlider.Parent = heightFrame
+
+local heightFill = Instance.new("Frame")
+heightFill.Size = UDim2.new(0.3, 0, 1, 0)  -- 初始30%（对应15 studs）
+heightFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+heightFill.Parent = heightSlider
+
+local UICorner2 = Instance.new("UICorner")
+UICorner2.CornerRadius = UDim.new(0, 4)
+UICorner2.Parent = heightSlider
+
+local UICorner3 = Instance.new("UICorner")
+UICorner3.CornerRadius = UDim.new(0, 8)
+UICorner3.Parent = heightFrame
+
+-- 滑块交互
+heightSlider.MouseButton1Down:Connect(function()
+    local connection
+    connection = game:GetService("RunService").RenderStepped:Connect(function()
+        local mouse = game:GetService("Players").LocalPlayer:GetMouse()
+        local x = mouse.X - heightSlider.AbsolutePosition.X
+        local width = heightSlider.AbsoluteSize.X
+        local percentage = math.clamp(x / width, 0, 1)
+        
+        heightFill.Size = UDim2.new(percentage, 0, 1, 0)
+        
+        -- 高度范围：5到50 studs
+        baseHeight = math.floor(5 + percentage * 45)
+        heightLabel.Text = "传送高度: " .. baseHeight .. " studs"
+    end)
+    
+    game:GetService("UserInputService").InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            connection:Disconnect()
+        end
+    end)
+end)
+
+print("脚本加载成功！")
+print("快捷键: T - 开始传送, Y - 停止传送")
+print("使用滑块调整传送高度 (5-50 studs)")
