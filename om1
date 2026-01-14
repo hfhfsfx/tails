@@ -200,7 +200,7 @@ local function setupSlider(sliderFrame, fillFrame, button, label, isRunSlider)
             local relativeX = (mouseX - sliderAbsolutePosition.X) / sliderAbsoluteSize.X
             relativeX = math.clamp(relativeX, 0, 1)
             
-            local speedValue = math.floor(10 + relativeX * 40)
+            local speedValue = math.floor(relativeX * 50)
             
             button.Position = UDim2.new(relativeX, -10, 0.5, -10)
             fillFrame.Size = UDim2.new(relativeX, 0, 1, 0)
