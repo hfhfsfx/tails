@@ -3,6 +3,14 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
+-- 速度范围配置
+local SPEED_CONFIG = {
+    MIN = 0,      -- 最小速度
+    MAX = 50,     -- 最大速度
+    DEFAULT_WALK = 14,
+    DEFAULT_RUN = 26.5
+}
+
 -- 获取玩家角色
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
@@ -10,8 +18,8 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
 
 -- ==== 速度变量（共享）====
-_G.WalkSpeed = 14      -- 使用全局变量或共享表
-_G.RunSpeed = 26.5   
+_G.WalkSpeed = SPEED_CONFIG.DEFAULT_WALK
+_G.RunSpeed = SPEED_CONFIG.DEFAULT_RUN
 _G.CurrentSpeed = _G.WalkSpeed
 local running = false
 
@@ -41,6 +49,10 @@ title.TextSize = 20
 title.Font = Enum.Font.GothamBold
 title.Parent = mainFrame
 
+-- 计算初始滑块位置
+local walkSpeedRatio = (_G.WalkSpeed - SPEED_CONFIG.MIN) / (SPEED_CONFIG.MAX - SPEED_CONFIG.MIN)
+local runSpeedRatio = (_G.RunSpeed - SPEED_CONFIG.MIN) / (SPEED_CONFIG.MAX - SPEED_CONFIG.MIN)
+
 -- 步行速度滑块
 local walkSpeedLabel = Instance.new("TextLabel")
 walkSpeedLabel.Size = UDim2.new(1, -20, 0, 25)
@@ -62,7 +74,7 @@ walkSpeedSlider.Name = "WalkSpeedSlider"
 walkSpeedSlider.Parent = mainFrame
 
 local walkSpeedFill = Instance.new("Frame")
-walkSpeedFill.Size = UDim2.new((_G.WalkSpeed - 10) / 40, 0, 1, 0)
+walkSpeedFill.Size = UDim2.new(walkSpeedRatio, 0, 1, 0)
 walkSpeedFill.Position = UDim2.new(0, 0, 0, 0)
 walkSpeedFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
 walkSpeedFill.BorderSizePixel = 0
@@ -70,7 +82,7 @@ walkSpeedFill.Parent = walkSpeedSlider
 
 local walkSpeedButton = Instance.new("TextButton")
 walkSpeedButton.Size = UDim2.new(0, 20, 0, 20)
-walkSpeedButton.Position = UDim2.new((_G.WalkSpeed - 10) / 40, -10, 0.5, -10)
+walkSpeedButton.Position = UDim2.new(walkSpeedRatio, -10, 0.5, -10)
 walkSpeedButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 walkSpeedButton.Text = ""
 walkSpeedButton.ZIndex = 2
@@ -97,7 +109,7 @@ runSpeedSlider.Name = "RunSpeedSlider"
 runSpeedSlider.Parent = mainFrame
 
 local runSpeedFill = Instance.new("Frame")
-runSpeedFill.Size = UDim2.new((_G.RunSpeed - 10) / 40, 0, 1, 0)
+runSpeedFill.Size = UDim2.new(runSpeedRatio, 0, 1, 0)
 runSpeedFill.Position = UDim2.new(0, 0, 0, 0)
 runSpeedFill.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
 runSpeedFill.BorderSizePixel = 0
@@ -106,7 +118,7 @@ runSpeedFill.Parent = runSpeedSlider
 
 local runSpeedButton = Instance.new("TextButton")
 runSpeedButton.Size = UDim2.new(0, 20, 0, 20)
-runSpeedButton.Position = UDim2.new((_G.RunSpeed - 10) / 40, -10, 0.5, -10)
+runSpeedButton.Position = UDim2.new(runSpeedRatio, -10, 0.5, -10)
 runSpeedButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 runSpeedButton.Text = ""
 runSpeedButton.ZIndex = 2
@@ -172,7 +184,8 @@ local function setupSlider(sliderFrame, fillFrame, button, label, isRunSlider)
             local relativeX = (mouseX - sliderAbsolutePosition.X) / sliderAbsoluteSize.X
             relativeX = math.clamp(relativeX, 0, 1)
             
-            local speedValue = math.floor(10 + relativeX * 40)
+            -- 使用新的速度范围计算
+            local speedValue = math.floor(SPEED_CONFIG.MIN + relativeX * (SPEED_CONFIG.MAX - SPEED_CONFIG.MIN))
             
             button.Position = UDim2.new(relativeX, -10, 0.5, -10)
             fillFrame.Size = UDim2.new(relativeX, 0, 1, 0)
@@ -200,7 +213,8 @@ local function setupSlider(sliderFrame, fillFrame, button, label, isRunSlider)
             local relativeX = (mouseX - sliderAbsolutePosition.X) / sliderAbsoluteSize.X
             relativeX = math.clamp(relativeX, 0, 1)
             
-            local speedValue = math.floor(relativeX * 50)
+            -- 使用新的速度范围计算
+            local speedValue = math.floor(SPEED_CONFIG.MIN + relativeX * (SPEED_CONFIG.MAX - SPEED_CONFIG.MIN))
             
             button.Position = UDim2.new(relativeX, -10, 0.5, -10)
             fillFrame.Size = UDim2.new(relativeX, 0, 1, 0)
